@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-bg-base: var(--color-bg-base);
+  --color-bg-panel: var(--color-bg-panel);
+  --color-bg-hover: var(--color-bg-hover);
+  --color-bg-active: var(--color-bg-active);
+  --color-border-subtle: var(--color-border-subtle);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-tertiary: var(--color-text-tertiary);
+  --color-accent: var(--color-accent);
+  --color-ai-user: var(--color-ai-user);
+  --color-ai-bot: var(--color-ai-bot);
+}
+
+@layer base {
+  :root {
+    --color-bg-base: #FFFFFF;
+    --color-bg-panel: #F6F6F6;
+    --color-bg-hover: #F0F0F0;
+    --color-bg-active: #EAEAEA;
+    --color-border-subtle: #E5E5E5;
+    --color-text-primary: #1F1F1F;
+    --color-text-secondary: #6B6B6B;
+    --color-text-tertiary: #8E8E93;
+    --color-accent: #007AFF;
+    --color-ai-user: #2563EB; 
+    --color-ai-bot: #F2F2F7;
+  }
+  
+  .dark {
+    --color-bg-base: #1c1c1e;
+    --color-bg-panel: #2c2c2e;
+    --color-bg-hover: #3a3a3c;
+    --color-bg-active: #48484a;
+    --color-border-subtle: #38383a;
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #ebebf599;
+    --color-text-tertiary: #ebebf54d;
+    --color-accent: #0a84ff;
+    --color-ai-user: #0a84ff; 
+    --color-ai-bot: #3a3a3c;
+  }
+}
+
+@layer utilities {
+  .editor-scroll .cm-scroller {
+    font-family: var(--font-mono);
+    padding: 24px;
+    background-color: var(--color-bg-base);
+  }
+  
+  .cm-editor {
+    background-color: var(--color-bg-base) !important;
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "InkStack (墨栈)",
+  "description": "A high-performance local Markdown writing workspace with local file system access and AI collaboration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
