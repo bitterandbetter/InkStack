@@ -7,6 +7,10 @@ pub struct AppSettings {
     #[serde(default)]
     pub recent_files: Vec<String>,
     #[serde(default)]
+    pub pinned_workspaces: Vec<String>,
+    #[serde(default)]
+    pub pinned_files: Vec<String>,
+    #[serde(default)]
     pub last_workspace: Option<String>,
     #[serde(default)]
     pub last_file: Option<String>,
@@ -17,6 +21,8 @@ impl Default for AppSettings {
         Self {
             recent_workspaces: Vec::new(),
             recent_files: Vec::new(),
+            pinned_workspaces: Vec::new(),
+            pinned_files: Vec::new(),
             last_workspace: None,
             last_file: None,
         }
@@ -83,6 +89,18 @@ pub struct MarkdownAsset {
     pub path: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct ImportedMarkdownAsset {
+    pub path: String,
+    pub relative_src: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportMarkdownAssetRequest {
+    pub document_path: String,
+    pub source_path: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SaveMarkdownRequest {
     pub path: String,
@@ -118,6 +136,26 @@ pub struct RenameWorkspaceEntryRequest {
 }
 
 #[derive(Debug, Serialize)]
+pub struct CssThemeSummary {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CssThemeDocument {
+    pub id: String,
+    pub name: String,
+    pub css: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportCssThemeRequest {
+    pub suggested_name: String,
+    pub css: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct SaveMarkdownResult {
     pub path: String,
     pub metadata: FileMetadata,
@@ -141,6 +179,35 @@ pub struct AiGenerateResult {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiStreamStartPayload {
+    pub request_id: String,
+    pub provider: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiStreamDeltaPayload {
+    pub request_id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiStreamEndPayload {
+    pub request_id: String,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiStreamErrorPayload {
+    pub request_id: String,
+    pub error: String,
 }
 
 #[derive(Debug, Serialize)]

@@ -34,6 +34,8 @@ export interface ReadFileResult {
 export interface AppSettings {
   recentWorkspaces: string[];
   recentFiles: string[];
+  pinnedWorkspaces: string[];
+  pinnedFiles: string[];
   lastWorkspace: string | null;
   lastFile: string | null;
 }
@@ -50,6 +52,8 @@ export interface MarkdownSearchResult {
 interface TauriAppSettings {
   recent_workspaces?: string[];
   recent_files?: string[];
+  pinned_workspaces?: string[];
+  pinned_files?: string[];
   last_workspace?: string | null;
   last_file?: string | null;
 }
@@ -122,6 +126,11 @@ interface TauriMarkdownAsset {
   path: string;
 }
 
+interface TauriImportedMarkdownAsset {
+  path: string;
+  relative_src: string;
+}
+
 function mapMetadata(metadata: TauriFileMetadata): FileMetadata {
   return {
     modifiedAt: metadata.modified_at,
@@ -181,13 +190,36 @@ function mapSettings(settings: TauriAppSettings): AppSettings {
   return {
     recentWorkspaces: settings.recent_workspaces ?? [],
     recentFiles: settings.recent_files ?? [],
+    pinnedWorkspaces: settings.pinned_workspaces ?? [],
+    pinnedFiles: settings.pinned_files ?? [],
     lastWorkspace: settings.last_workspace ?? null,
     lastFile: settings.last_file ?? null
   };
 }
 
+function unmapSettings(settings: AppSettings): TauriAppSettings {
+  return {
+    recent_workspaces: settings.recentWorkspaces,
+    recent_files: settings.recentFiles,
+    pinned_workspaces: settings.pinnedWorkspaces,
+    pinned_files: settings.pinnedFiles,
+    last_workspace: settings.lastWorkspace,
+    last_file: settings.lastFile
+  };
+}
+
 export async function getSettings(): Promise<AppSettings> {
   return mapSettings(await invoke<TauriAppSettings>('get_settings'));
+}
+
+export async function updateSettings(settings: AppSettings): Promise<AppSettings> {
+  return mapSettings(await invoke<TauriAppSettings>('update_settings', {
+    settings: unmapSettings(settings)
+  }));
+}
+
+export async function pruneMissingRecentEntries(): Promise<AppSettings> {
+  return mapSettings(await invoke<TauriAppSettings>('prune_missing_recent_entries'));
 }
 
 export async function takeStartupMarkdownPaths(): Promise<string[]> {
@@ -293,6 +325,19 @@ export async function resolveMarkdownAsset(documentPath: string, assetSrc: strin
     assetSrc
   });
   return result.path;
+}
+
+export async function importMarkdownAsset(documentPath: string, sourcePath: string): Promise<{ path: string; relativeSrc: string }> {
+  const result = await invoke<TauriImportedMarkdownAsset>('import_markdown_asset', {
+    request: {
+      document_path: documentPath,
+      source_path: sourcePath
+    }
+  });
+  return {
+    path: result.path,
+    relativeSrc: result.relative_src
+  };
 }
 
 export async function writeFileContent(

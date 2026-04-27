@@ -1,40 +1,71 @@
-import CodeMirror, { ReactCodeMirrorRef } from '@uiw/react-codemirror';
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { languages } from '@codemirror/language-data';
-import { javascript } from '@codemirror/lang-javascript';
-import { python } from '@codemirror/lang-python';
-import { rust } from '@codemirror/lang-rust';
-import { json } from '@codemirror/lang-json';
-import { html } from '@codemirror/lang-html';
-import { css } from '@codemirror/lang-css';
-import { sql } from '@codemirror/lang-sql';
-import { xml } from '@codemirror/lang-xml';
-import { yaml } from '@codemirror/lang-yaml';
+import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import type { Extension } from '@codemirror/state';
-import { oneDark } from '@codemirror/theme-one-dark';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useStore } from '../store';
 import { cn } from '../lib/utils';
-import { EditorView } from '@codemirror/view';
-import { Bot, Check, Copy, FileText, Languages, Maximize2, Sparkles, Undo2, Wand2, X, Bold, Italic, Code } from 'lucide-react';
-import { askAI, modifyTextWithAI } from '../lib/ai';
+import { EditorView, keymap } from '@codemirror/view';
+import { LanguageDescription } from '@codemirror/language';
+import {
+  Bot,
+  Check,
+  Copy,
+  FileText,
+  Heading1,
+  Heading2,
+  Heading3,
+  Image,
+  Italic,
+  Languages,
+  Link,
+  List,
+  ListChecks,
+  ListOrdered,
+  Maximize2,
+  Minus,
+  Quote,
+  Sparkles,
+  Strikethrough,
+  Table2,
+  Undo2,
+  Wand2,
+  X,
+  Bold,
+  Code,
+  Code2,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  Replace
+} from 'lucide-react';
+import { askAI, isAiAbortError, modifyTextWithAI, sanitizeAiError } from '../lib/ai';
 import type { EditorAiPromptKey } from '../lib/aiPrompts';
 import { EditorState } from '@codemirror/state';
 import { confirmAiContext, contextDetail } from '../lib/aiContext';
+import { listen } from '@tauri-apps/api/event';
+import { importMarkdownAsset } from '../lib/fs';
+import { listenEditorCommand } from '../lib/appEvents';
 
-type MarkdownAction = 'bold' | 'italic' | 'code';
+type MarkdownAction = import('../lib/appEvents').MarkdownEditorCommand;
 type TransformAction = Extract<EditorAiPromptKey, 'rewrite' | 'polish' | 'expand' | 'translate'>;
 type InsightAction = Extract<EditorAiPromptKey, 'ask' | 'summarize'>;
 type DiffLine = {
   type: 'same' | 'added' | 'removed';
   text: string;
 };
-
-const markdownActions: Record<MarkdownAction, { marker: string; sample: string }> = {
-  bold: { marker: '**', sample: 'bold text' },
-  italic: { marker: '*', sample: 'italic text' },
-  code: { marker: '`', sample: 'code' },
+type FindMatch = { from: number; to: number };
+type DragDropPayload = {
+  paths?: string[];
+  position?: { x: number; y: number };
 };
+
+const inlineMarkdownActions: Partial<Record<MarkdownAction, { open: string; close: string; sample: string }>> = {
+  bold: { open: '**', close: '**', sample: 'bold text' },
+  italic: { open: '*', close: '*', sample: 'italic text' },
+  strike: { open: '~~', close: '~~', sample: 'strikethrough text' },
+  inlineCode: { open: '`', close: '`', sample: 'code' },
+};
+const imageExtensionPattern = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 
 export function EditorPane() {
   const {
@@ -55,6 +86,7 @@ export function EditorPane() {
     editorAiPrompts
   } = useStore();
   const editorRef = useRef<ReactCodeMirrorRef>(null);
+  const inlineAbortRef = useRef<AbortController | null>(null);
   const [inlineDraft, setInlineDraft] = useState<{
     from: number;
     to: number;
@@ -76,12 +108,20 @@ export function EditorPane() {
     sourcePath: string;
   } | null>(null);
   const [inlineStatus, setInlineStatus] = useState<string>('');
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [replaceText, setReplaceText] = useState('');
+  const [matchCase, setMatchCase] = useState(false);
+  const [activeFindIndex, setActiveFindIndex] = useState(0);
   const isReadOnly = Boolean(activeFile?.readOnly || (activeFile && !activeFile.isMarkdown));
   const isMarkdownDocument = Boolean(activeFile?.isMarkdown);
-  const languageExtension = useMemo(
-    () => getEditorLanguageExtension(activeFile?.language || (isMarkdownDocument ? 'markdown' : 'text')),
-    [activeFile?.language, isMarkdownDocument]
+  const editorLanguage = activeFile?.language || (isMarkdownDocument ? 'markdown' : 'text');
+  const [languageExtension, setLanguageExtension] = useState<Extension>([]);
+  const findMatches = useMemo(
+    () => findDocumentMatches(activeFileContent, findQuery, matchCase),
+    [activeFileContent, findQuery, matchCase]
   );
+  const activeFindMatch = findMatches[activeFindIndex] ?? null;
 
   const onChange = useCallback((value: string) => {
     if (isReadOnly) return;
@@ -106,6 +146,8 @@ export function EditorPane() {
   }), [setCurrentEditorLine, setEditorSelection]);
 
   const clearInlineArtifacts = useCallback(() => {
+    inlineAbortRef.current?.abort();
+    inlineAbortRef.current = null;
     setInlineDraft(null);
     setInlineAnswer(null);
     setInsertDraft(null);
@@ -117,24 +159,40 @@ export function EditorPane() {
     const view = editorRef.current?.view;
     if (!view) return;
 
-    const { marker, sample } = markdownActions[action];
-    const { state } = view;
-    const selection = state.selection.main;
-    const hasSelection = !selection.empty;
-    const selectedText = hasSelection ? state.sliceDoc(selection.from, selection.to) : sample;
-    const insertText = `${marker}${selectedText}${marker}`;
-    const from = selection.from;
-    const to = selection.to;
-    const sampleFrom = from + marker.length;
-    const sampleTo = sampleFrom + selectedText.length;
-
-    view.dispatch({
-      changes: { from, to, insert: insertText },
-      selection: { anchor: sampleFrom, head: sampleTo },
-      scrollIntoView: true,
-    });
+    applyMarkdownEdit(view, action);
     view.focus();
   }, [isMarkdownDocument, isReadOnly]);
+
+  const runMarkdownShortcut = useCallback((action: MarkdownAction) => {
+    if (!isMarkdownDocument || isReadOnly) return false;
+    const view = editorRef.current?.view;
+    if (!view) return false;
+    applyMarkdownEdit(view, action);
+    return true;
+  }, [isMarkdownDocument, isReadOnly]);
+
+  const openFindPanel = useCallback(() => {
+    setFindOpen(true);
+    const view = editorRef.current?.view;
+    const selection = view?.state.selection.main;
+    if (view && selection && !selection.empty) {
+      const selectedText = view.state.sliceDoc(selection.from, selection.to);
+      if (selectedText && !selectedText.includes('\n')) {
+        setFindQuery(selectedText);
+      }
+    }
+    return true;
+  }, []);
+
+  const markdownKeymap = useMemo(() => keymap.of([
+    { key: 'Mod-f', run: openFindPanel },
+    { key: 'Mod-b', run: () => runMarkdownShortcut('bold') },
+    { key: 'Mod-i', run: () => runMarkdownShortcut('italic') },
+    { key: 'Mod-k', run: () => runMarkdownShortcut('link') },
+    { key: 'Mod-1', run: () => runMarkdownShortcut('heading1') },
+    { key: 'Mod-2', run: () => runMarkdownShortcut('heading2') },
+    { key: 'Mod-3', run: () => runMarkdownShortcut('heading3') },
+  ]), [openFindPanel, runMarkdownShortcut]);
 
   const handleRewriteAction = async () => {
     if (!aiPanelOpen) toggleAiPanel();
@@ -173,10 +231,14 @@ export function EditorPane() {
       setInlineStatus('');
       return;
     }
+    inlineAbortRef.current?.abort();
+    const abortController = new AbortController();
+    inlineAbortRef.current = abortController;
     setInlineStatus(getActionRunningText(kind, locale));
 
     try {
-      const proposed = await modifyTextWithAI(aiConfig, originalSelection.text, prompt);
+      const proposed = await modifyTextWithAI(aiConfig, originalSelection.text, prompt, abortController.signal);
+      if (abortController.signal.aborted) return;
       setInlineDraft({
         from: originalSelection.from,
         to: originalSelection.to,
@@ -186,9 +248,15 @@ export function EditorPane() {
         action: kind
       });
     } catch (error: any) {
-      setInlineStatus(error?.message ?? String(error));
-      window.setTimeout(() => setInlineStatus(''), 3000);
+      if (!isAiAbortError(error)) {
+        setInlineStatus(sanitizeAiError(error, locale));
+        window.setTimeout(() => setInlineStatus(''), 3000);
+      }
       return;
+    } finally {
+      if (inlineAbortRef.current === abortController) {
+        inlineAbortRef.current = null;
+      }
     }
 
     setInlineStatus('');
@@ -216,9 +284,13 @@ export function EditorPane() {
       ]
     );
     if (!confirmed) return;
+    inlineAbortRef.current?.abort();
+    const abortController = new AbortController();
+    inlineAbortRef.current = abortController;
     setInlineStatus(getActionRunningText(kind, locale));
     try {
-      const answer = await askAI(aiConfig, editorAiPrompts[kind], editorSelection.text);
+      const answer = await askAI(aiConfig, editorAiPrompts[kind], editorSelection.text, abortController.signal);
+      if (abortController.signal.aborted) return;
       setInlineAnswer({
         action: kind,
         answer,
@@ -227,8 +299,14 @@ export function EditorPane() {
       });
       setInlineStatus('');
     } catch (error: any) {
-      setInlineStatus(error?.message ?? String(error));
-      window.setTimeout(() => setInlineStatus(''), 3000);
+      if (!isAiAbortError(error)) {
+        setInlineStatus(sanitizeAiError(error, locale));
+        window.setTimeout(() => setInlineStatus(''), 3000);
+      }
+    } finally {
+      if (inlineAbortRef.current === abortController) {
+        inlineAbortRef.current = null;
+      }
     }
   };
 
@@ -323,6 +401,88 @@ export function EditorPane() {
     view.focus();
   };
 
+  const jumpToFindMatch = useCallback((index: number) => {
+    const view = editorRef.current?.view;
+    if (!view || findMatches.length === 0) return;
+    const normalizedIndex = normalizeMatchIndex(index, findMatches.length);
+    const match = findMatches[normalizedIndex];
+    setActiveFindIndex(normalizedIndex);
+    view.dispatch({
+      selection: { anchor: match.from, head: match.to },
+      effects: EditorView.scrollIntoView(match.from, { y: 'center' })
+    });
+    view.focus();
+  }, [findMatches]);
+
+  const replaceCurrentMatch = useCallback(() => {
+    const view = editorRef.current?.view;
+    if (!view || isReadOnly || !isMarkdownDocument || !activeFindMatch) return;
+    view.dispatch({
+      changes: { from: activeFindMatch.from, to: activeFindMatch.to, insert: replaceText },
+      selection: { anchor: activeFindMatch.from, head: activeFindMatch.from + replaceText.length },
+      scrollIntoView: true
+    });
+    setActiveFindIndex((index) => Math.min(index, Math.max(0, findMatches.length - 2)));
+    view.focus();
+  }, [activeFindMatch, findMatches.length, isMarkdownDocument, isReadOnly, replaceText]);
+
+  const replaceAllMatches = useCallback(() => {
+    const view = editorRef.current?.view;
+    if (!view || isReadOnly || !isMarkdownDocument || findMatches.length === 0) return;
+    view.dispatch({
+      changes: findMatches.map((match) => ({
+        from: match.from,
+        to: match.to,
+        insert: replaceText
+      })),
+      scrollIntoView: true
+    });
+    setActiveFindIndex(0);
+    view.focus();
+  }, [findMatches, isMarkdownDocument, isReadOnly, replaceText]);
+
+  const insertImportedImage = useCallback(async (sourcePath: string) => {
+    const view = editorRef.current?.view;
+    if (!view || !activeFile?.path || !isMarkdownDocument || isReadOnly) return;
+    try {
+      const asset = await importMarkdownAsset(activeFile.path, sourcePath);
+      const selection = view.state.selection.main;
+      const altText = fileNameWithoutExtension(sourcePath) || 'image';
+      const markdown = `![${altText}](${asset.relativeSrc})`;
+      view.dispatch({
+        changes: { from: selection.from, to: selection.to, insert: markdown },
+        selection: { anchor: selection.from, head: selection.from + markdown.length },
+        scrollIntoView: true
+      });
+      setInlineStatus(locale === 'zh' ? `已导入图片：${asset.relativeSrc}` : `Image imported: ${asset.relativeSrc}`);
+      window.setTimeout(() => setInlineStatus(''), 2200);
+      view.focus();
+    } catch (error: any) {
+      setInlineStatus(error?.message ?? String(error));
+      window.setTimeout(() => setInlineStatus(''), 3500);
+    }
+  }, [activeFile?.path, isMarkdownDocument, isReadOnly, locale]);
+
+  useEffect(() => listenEditorCommand((command) => {
+    if (command.type === 'find') {
+      openFindPanel();
+      return;
+    }
+
+    if (command.type === 'markdown') {
+      applyMarkdownAction(command.action);
+      return;
+    }
+
+    if (command.type === 'selection-ai') {
+      if (command.action === 'ask' || command.action === 'summarize') {
+        void askSelection(command.action);
+        return;
+      }
+      void runInlineAiTransform(command.action);
+    }
+  }), [applyMarkdownAction, openFindPanel, runInlineAiTransform, askSelection]);
+
   useEffect(() => {
     const view = editorRef.current?.view;
     if (!view || !pendingEditorLine || pendingEditorLine < 1) return;
@@ -343,10 +503,61 @@ export function EditorPane() {
   }, [activeFile?.path, clearInlineArtifacts]);
 
   useEffect(() => {
+    let cancelled = false;
+    setLanguageExtension([]);
+
+    void getEditorLanguageExtension(editorLanguage)
+      .then((extension) => {
+        if (!cancelled) setLanguageExtension(extension);
+      })
+      .catch(() => {
+        if (!cancelled) setLanguageExtension([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editorLanguage]);
+
+  useEffect(() => {
     if (!editorSelection?.text.trim()) {
       setInlineAnswer(null);
     }
   }, [editorSelection?.from, editorSelection?.to, editorSelection?.text]);
+
+  useEffect(() => {
+    if (activeFindIndex > Math.max(0, findMatches.length - 1)) {
+      setActiveFindIndex(Math.max(0, findMatches.length - 1));
+    }
+  }, [activeFindIndex, findMatches.length]);
+
+  useEffect(() => {
+    if (activeFindMatch && findOpen) {
+      const view = editorRef.current?.view;
+      view?.dispatch({
+        selection: { anchor: activeFindMatch.from, head: activeFindMatch.to },
+        effects: EditorView.scrollIntoView(activeFindMatch.from, { y: 'center' })
+      });
+    }
+  }, [activeFindMatch?.from, activeFindMatch?.to, findOpen]);
+
+  useEffect(() => {
+    let disposed = false;
+    let dispose: (() => void) | null = null;
+    void listen<DragDropPayload>('tauri://drag-drop', (event) => {
+      const imagePath = event.payload.paths?.find((path) => imageExtensionPattern.test(path));
+      if (!imagePath) return;
+      void insertImportedImage(imagePath);
+    }).then((nextDispose) => {
+      if (disposed) nextDispose();
+      else dispose = nextDispose;
+    });
+
+    return () => {
+      disposed = true;
+      dispose?.();
+    };
+  }, [insertImportedImage]);
 
   if (!activeFile) {
     return (
@@ -370,13 +581,14 @@ export function EditorPane() {
         ref={editorRef}
         value={activeFileContent}
         onChange={onChange}
-        theme={isDarkMode ? oneDark : 'light'}
+        theme={isDarkMode ? 'dark' : 'light'}
         extensions={[
           languageExtension,
           EditorView.lineWrapping,
           lightTheme,
           EditorState.readOnly.of(isReadOnly),
           EditorView.editable.of(!isReadOnly),
+          markdownKeymap,
           selectionTracker
         ]}
         className="h-full text-[14px] leading-relaxed editor-scroll"
@@ -389,6 +601,40 @@ export function EditorPane() {
           crosshairCursor: true,
         }}
       />
+
+      <button
+        onClick={openFindPanel}
+        className="absolute left-5 top-5 z-10 rounded-md border border-border-subtle bg-bg-base/85 p-2 text-text-tertiary shadow-sm backdrop-blur transition-colors hover:bg-bg-hover hover:text-text-primary"
+        title={locale === 'zh' ? '查找 / 替换' : 'Find / Replace'}
+      >
+        <Search size={15} />
+      </button>
+
+      {findOpen && (
+        <FindReplacePanel
+          locale={locale}
+          query={findQuery}
+          replaceText={replaceText}
+          matchCase={matchCase}
+          matchCount={findMatches.length}
+          activeIndex={findMatches.length ? activeFindIndex : -1}
+          canReplace={isMarkdownDocument && !isReadOnly}
+          onQueryChange={(value) => {
+            setFindQuery(value);
+            setActiveFindIndex(0);
+          }}
+          onReplaceTextChange={setReplaceText}
+          onMatchCaseChange={(value) => {
+            setMatchCase(value);
+            setActiveFindIndex(0);
+          }}
+          onPrevious={() => jumpToFindMatch(activeFindIndex - 1)}
+          onNext={() => jumpToFindMatch(activeFindIndex + 1)}
+          onReplaceCurrent={replaceCurrentMatch}
+          onReplaceAll={replaceAllMatches}
+          onClose={() => setFindOpen(false)}
+        />
+      )}
 
       {editorSelection?.text.trim() && !inlineDraft && !inlineAnswer && (
         <div className="absolute right-5 top-5 z-20 flex max-w-[calc(100%-2.5rem)] flex-wrap items-center gap-1 rounded-md border border-border-subtle bg-bg-base/95 px-1.5 py-1 shadow-lg backdrop-blur text-text-secondary">
@@ -481,8 +727,21 @@ export function EditorPane() {
       )}
 
       {inlineStatus && (
-        <div className="absolute right-5 top-20 z-30 max-w-80 rounded-md border border-border-subtle bg-bg-base px-3 py-2 text-[12px] text-text-secondary shadow-lg">
-          {inlineStatus}
+        <div className="absolute right-5 top-20 z-30 flex max-w-96 items-center gap-2 rounded-md border border-border-subtle bg-bg-base px-3 py-2 text-[12px] text-text-secondary shadow-lg">
+          <span className="min-w-0 flex-1">{inlineStatus}</span>
+          {inlineAbortRef.current && (
+            <button
+              onClick={() => {
+                inlineAbortRef.current?.abort();
+                inlineAbortRef.current = null;
+                setInlineStatus(locale === 'zh' ? '已取消 AI 请求。' : 'AI request cancelled.');
+                window.setTimeout(() => setInlineStatus(''), 1600);
+              }}
+              className="shrink-0 rounded border border-border-subtle bg-bg-panel px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+            >
+              {locale === 'zh' ? '取消' : 'Cancel'}
+            </button>
+          )}
         </div>
       )}
       
@@ -496,62 +755,708 @@ export function EditorPane() {
 
       {/* Floating Action Toolbar */}
       {isMarkdownDocument && !isReadOnly && (
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center bg-bg-base/80 backdrop-blur shadow-xl border border-border-subtle rounded-full px-5 py-2 space-x-5 text-text-secondary z-10 transition-opacity">
-        <button
-          onClick={() => applyMarkdownAction('bold')}
-          className="hover:text-text-primary transition-colors"
-          title="Bold"
-        >
-          <Bold size={16} />
-        </button>
-        <button
-          onClick={() => applyMarkdownAction('italic')}
-          className="hover:text-text-primary transition-colors"
-          title="Italic"
-        >
-          <Italic size={16} />
-        </button>
-        <button
-          onClick={() => applyMarkdownAction('code')}
-          className="hover:text-text-primary border border-border-subtle rounded px-1.5 py-0.5 text-xs font-mono bg-bg-panel transition-colors"
-          title="Code"
-        >
-          <Code size={14} />
-        </button>
-        <div className="w-px h-4 bg-border-subtle"></div>
-        <button 
-          onClick={handleRewriteAction}
-          className="flex items-center space-x-1.5 text-accent hover:text-accent/80 transition-colors"
-        >
-          <Sparkles size={14} />
-          <span className="text-[13px] font-medium">{locale === 'zh' ? 'AI 优化' : 'AI Suggest'}</span>
-        </button>
-      </div>
+        <div className="absolute bottom-6 left-1/2 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-full border border-border-subtle bg-bg-base/90 px-3 py-2 text-text-secondary shadow-xl backdrop-blur transition-opacity">
+          <ToolbarButton icon={<Heading1 size={15} />} label="H1" title="Heading 1" onClick={() => applyMarkdownAction('heading1')} />
+          <ToolbarButton icon={<Heading2 size={15} />} label="H2" title="Heading 2" onClick={() => applyMarkdownAction('heading2')} />
+          <ToolbarButton icon={<Heading3 size={15} />} label="H3" title="Heading 3" onClick={() => applyMarkdownAction('heading3')} />
+          <ToolbarDivider />
+          <ToolbarButton icon={<Bold size={15} />} title="Bold" onClick={() => applyMarkdownAction('bold')} />
+          <ToolbarButton icon={<Italic size={15} />} title="Italic" onClick={() => applyMarkdownAction('italic')} />
+          <ToolbarButton icon={<Strikethrough size={15} />} title="Strikethrough" onClick={() => applyMarkdownAction('strike')} />
+          <ToolbarButton icon={<Code size={15} />} title="Inline code" onClick={() => applyMarkdownAction('inlineCode')} />
+          <ToolbarButton icon={<Code2 size={15} />} title="Code block" onClick={() => applyMarkdownAction('codeBlock')} />
+          <ToolbarDivider />
+          <ToolbarButton icon={<Quote size={15} />} title="Quote" onClick={() => applyMarkdownAction('quote')} />
+          <ToolbarButton icon={<List size={15} />} title="Bulleted list" onClick={() => applyMarkdownAction('bulletList')} />
+          <ToolbarButton icon={<ListOrdered size={15} />} title="Ordered list" onClick={() => applyMarkdownAction('orderedList')} />
+          <ToolbarButton icon={<ListChecks size={15} />} title="Task list" onClick={() => applyMarkdownAction('taskList')} />
+          <ToolbarDivider />
+          <ToolbarButton icon={<Link size={15} />} title="Link" onClick={() => applyMarkdownAction('link')} />
+          <ToolbarButton icon={<Image size={15} />} title="Image" onClick={() => applyMarkdownAction('image')} />
+          <ToolbarButton icon={<Table2 size={15} />} title="Table" onClick={() => applyMarkdownAction('table')} />
+          <ToolbarButton icon={<Table2 size={15} />} label="FMT" title="Format table" onClick={() => applyMarkdownAction('formatTable')} />
+          <ToolbarButton icon={<ListOrdered size={15} />} label="+R" title="Insert table row below" onClick={() => applyMarkdownAction('insertTableRow')} />
+          <ToolbarButton icon={<List size={15} />} label="+C" title="Insert table column right" onClick={() => applyMarkdownAction('insertTableColumn')} />
+          <ToolbarButton icon={<Minus size={15} />} title="Divider" onClick={() => applyMarkdownAction('divider')} />
+          <ToolbarDivider />
+          <button
+            onClick={handleRewriteAction}
+            className="ml-1 flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-accent transition-colors hover:bg-bg-hover hover:text-accent/80"
+            title={locale === 'zh' ? '打开 AI 面板' : 'Open AI panel'}
+          >
+            <Sparkles size={14} />
+            <span className="whitespace-nowrap text-[13px] font-medium">{locale === 'zh' ? 'AI 优化' : 'AI Suggest'}</span>
+          </button>
+        </div>
       )}
     </div>
   );
 }
 
-function getEditorLanguageExtension(language: string): Extension {
+const markdownCodeLanguages = [
+  LanguageDescription.of({
+    name: 'JavaScript',
+    alias: ['js', 'jsx', 'mjs', 'cjs'],
+    extensions: ['js', 'jsx', 'mjs', 'cjs'],
+    load: async () => (await import('@codemirror/lang-javascript')).javascript({ jsx: true })
+  }),
+  LanguageDescription.of({
+    name: 'TypeScript',
+    alias: ['ts'],
+    extensions: ['ts'],
+    load: async () => (await import('@codemirror/lang-javascript')).javascript({ typescript: true })
+  }),
+  LanguageDescription.of({
+    name: 'TSX',
+    alias: ['tsx'],
+    extensions: ['tsx'],
+    load: async () => (await import('@codemirror/lang-javascript')).javascript({ jsx: true, typescript: true })
+  }),
+  LanguageDescription.of({
+    name: 'Python',
+    alias: ['py'],
+    extensions: ['py'],
+    load: async () => (await import('@codemirror/lang-python')).python()
+  }),
+  LanguageDescription.of({
+    name: 'Rust',
+    alias: ['rs'],
+    extensions: ['rs'],
+    load: async () => (await import('@codemirror/lang-rust')).rust()
+  }),
+  LanguageDescription.of({
+    name: 'JSON',
+    alias: ['jsonc'],
+    extensions: ['json', 'jsonc'],
+    load: async () => (await import('@codemirror/lang-json')).json()
+  }),
+  LanguageDescription.of({
+    name: 'HTML',
+    extensions: ['html', 'htm'],
+    load: async () => (await import('@codemirror/lang-html')).html()
+  }),
+  LanguageDescription.of({
+    name: 'CSS',
+    alias: ['scss', 'sass'],
+    extensions: ['css', 'scss', 'sass'],
+    load: async () => (await import('@codemirror/lang-css')).css()
+  }),
+  LanguageDescription.of({
+    name: 'SQL',
+    extensions: ['sql'],
+    load: async () => (await import('@codemirror/lang-sql')).sql()
+  }),
+  LanguageDescription.of({
+    name: 'XML',
+    extensions: ['xml'],
+    load: async () => (await import('@codemirror/lang-xml')).xml()
+  }),
+  LanguageDescription.of({
+    name: 'YAML',
+    alias: ['yml'],
+    extensions: ['yaml', 'yml'],
+    load: async () => (await import('@codemirror/lang-yaml')).yaml()
+  }),
+];
+
+async function getEditorLanguageExtension(language: string): Promise<Extension> {
   const normalized = language.toLowerCase();
   if (normalized === 'markdown' || normalized === 'md' || normalized === 'mdx') {
-    return markdown({ base: markdownLanguage, codeLanguages: languages });
+    const { markdown, markdownLanguage } = await import('@codemirror/lang-markdown');
+    return markdown({ base: markdownLanguage, codeLanguages: markdownCodeLanguages });
   }
   if (['javascript', 'js', 'mjs', 'cjs', 'jsx'].includes(normalized)) {
+    const { javascript } = await import('@codemirror/lang-javascript');
     return javascript({ jsx: normalized === 'jsx' });
   }
   if (['typescript', 'ts', 'tsx'].includes(normalized)) {
+    const { javascript } = await import('@codemirror/lang-javascript');
     return javascript({ jsx: normalized === 'tsx', typescript: true });
   }
-  if (normalized === 'python' || normalized === 'py') return python();
-  if (normalized === 'rust' || normalized === 'rs') return rust();
-  if (normalized === 'json' || normalized === 'jsonc') return json();
-  if (normalized === 'html') return html();
-  if (normalized === 'css' || normalized === 'scss' || normalized === 'sass') return css();
-  if (normalized === 'sql') return sql();
-  if (normalized === 'xml') return xml();
-  if (normalized === 'yaml' || normalized === 'yml') return yaml();
+  if (normalized === 'python' || normalized === 'py') return (await import('@codemirror/lang-python')).python();
+  if (normalized === 'rust' || normalized === 'rs') return (await import('@codemirror/lang-rust')).rust();
+  if (normalized === 'json' || normalized === 'jsonc') return (await import('@codemirror/lang-json')).json();
+  if (normalized === 'html') return (await import('@codemirror/lang-html')).html();
+  if (normalized === 'css' || normalized === 'scss' || normalized === 'sass') return (await import('@codemirror/lang-css')).css();
+  if (normalized === 'sql') return (await import('@codemirror/lang-sql')).sql();
+  if (normalized === 'xml') return (await import('@codemirror/lang-xml')).xml();
+  if (normalized === 'yaml' || normalized === 'yml') return (await import('@codemirror/lang-yaml')).yaml();
   return [];
+}
+
+function applyMarkdownEdit(view: EditorView, action: MarkdownAction) {
+  const { state } = view;
+  const selection = state.selection.main;
+
+  if (action in inlineMarkdownActions) {
+    applyInlineMarkdownEdit(view, action, selection.from, selection.to);
+    return;
+  }
+
+  if (action === 'heading1' || action === 'heading2' || action === 'heading3') {
+    const level = Number(action.replace('heading', ''));
+    applyLinePrefixEdit(view, selection.from, selection.to, '#'.repeat(level), { replaceHeading: true });
+    return;
+  }
+
+  if (action === 'quote') {
+    applyLinePrefixEdit(view, selection.from, selection.to, '>');
+    return;
+  }
+
+  if (action === 'bulletList') {
+    applyLinePrefixEdit(view, selection.from, selection.to, '-');
+    return;
+  }
+
+  if (action === 'orderedList') {
+    applyOrderedListEdit(view, selection.from, selection.to);
+    return;
+  }
+
+  if (action === 'taskList') {
+    applyLinePrefixEdit(view, selection.from, selection.to, '- [ ]');
+    return;
+  }
+
+  if (action === 'codeBlock') {
+    applyBlockTemplateEdit(view, selection.from, selection.to, '```text\n', '\n```', 'code');
+    return;
+  }
+
+  if (action === 'link') {
+    applyLinkEdit(view, selection.from, selection.to);
+    return;
+  }
+
+  if (action === 'image') {
+    applyImageEdit(view, selection.from, selection.to);
+    return;
+  }
+
+  if (action === 'table') {
+    applyBlockTemplateEdit(
+      view,
+      selection.from,
+      selection.to,
+      '',
+      '',
+      '| Column A | Column B |\n| --- | --- |\n| Value | Value |\n'
+    );
+    return;
+  }
+
+  if (action === 'formatTable') {
+    applyTableEdit(view, 'format');
+    return;
+  }
+
+  if (action === 'insertTableRow') {
+    applyTableEdit(view, 'insertRow');
+    return;
+  }
+
+  if (action === 'insertTableColumn') {
+    applyTableEdit(view, 'insertColumn');
+    return;
+  }
+
+  if (action === 'pasteCsvTable') {
+    void pasteDelimitedTable(view);
+    return;
+  }
+
+  if (action === 'divider') {
+    applyBlockTemplateEdit(view, selection.from, selection.to, '\n---\n', '', '');
+  }
+}
+
+function applyInlineMarkdownEdit(view: EditorView, action: MarkdownAction, from: number, to: number) {
+  const config = inlineMarkdownActions[action];
+  if (!config) return;
+
+  const selectedText = from === to ? config.sample : view.state.sliceDoc(from, to);
+  const insertText = `${config.open}${selectedText}${config.close}`;
+  const anchor = from + config.open.length;
+  const head = anchor + selectedText.length;
+
+  view.dispatch({
+    changes: { from, to, insert: insertText },
+    selection: { anchor, head },
+    scrollIntoView: true,
+  });
+}
+
+function applyLinePrefixEdit(
+  view: EditorView,
+  from: number,
+  to: number,
+  prefix: string,
+  options: { replaceHeading?: boolean } = {}
+) {
+  const { doc } = view.state;
+  const startLine = doc.lineAt(from);
+  const endLine = doc.lineAt(Math.max(from, to - 1));
+  const changes = [];
+
+  for (let number = startLine.number; number <= endLine.number; number += 1) {
+    const line = doc.line(number);
+    const original = line.text;
+    const withoutExistingHeading = options.replaceHeading
+      ? original.replace(/^\s{0,3}#{1,6}\s+/, '')
+      : original;
+    const content = withoutExistingHeading.trim().length ? withoutExistingHeading : placeholderForPrefix(prefix);
+    changes.push({
+      from: line.from,
+      to: line.to,
+      insert: `${prefix} ${content}`
+    });
+  }
+
+  view.dispatch({
+    changes,
+    selection: { anchor: changes[0].from + `${prefix} `.length, head: changes[changes.length - 1].from + changes[changes.length - 1].insert.length },
+    scrollIntoView: true
+  });
+}
+
+function applyOrderedListEdit(view: EditorView, from: number, to: number) {
+  const { doc } = view.state;
+  const startLine = doc.lineAt(from);
+  const endLine = doc.lineAt(Math.max(from, to - 1));
+  const changes = [];
+
+  for (let number = startLine.number; number <= endLine.number; number += 1) {
+    const line = doc.line(number);
+    const index = number - startLine.number + 1;
+    const content = line.text.trim().length ? line.text : 'List item';
+    changes.push({
+      from: line.from,
+      to: line.to,
+      insert: `${index}. ${content.replace(/^\s*\d+\.\s+/, '')}`
+    });
+  }
+
+  view.dispatch({
+    changes,
+    selection: { anchor: changes[0].from + 3, head: changes[changes.length - 1].from + changes[changes.length - 1].insert.length },
+    scrollIntoView: true
+  });
+}
+
+function applyBlockTemplateEdit(
+  view: EditorView,
+  from: number,
+  to: number,
+  before: string,
+  after: string,
+  fallback: string
+) {
+  const selectedText = from === to ? fallback : view.state.sliceDoc(from, to);
+  const insertText = `${before}${selectedText}${after}`;
+  const anchor = from + before.length;
+  const head = anchor + selectedText.length;
+
+  view.dispatch({
+    changes: { from, to, insert: insertText },
+    selection: { anchor, head },
+    scrollIntoView: true
+  });
+}
+
+function applyLinkEdit(view: EditorView, from: number, to: number) {
+  const selectedText = from === to ? 'link text' : view.state.sliceDoc(from, to);
+  const insertText = `[${selectedText}](https://)`;
+  const urlStart = from + selectedText.length + 3;
+
+  view.dispatch({
+    changes: { from, to, insert: insertText },
+    selection: { anchor: urlStart, head: urlStart + 'https://'.length },
+    scrollIntoView: true
+  });
+}
+
+function applyImageEdit(view: EditorView, from: number, to: number) {
+  const selectedText = from === to ? 'image alt' : view.state.sliceDoc(from, to);
+  const insertText = `![${selectedText}](./assets/image.png)`;
+  const pathStart = from + selectedText.length + 4;
+
+  view.dispatch({
+    changes: { from, to, insert: insertText },
+    selection: { anchor: pathStart, head: pathStart + './assets/image.png'.length },
+    scrollIntoView: true
+  });
+}
+
+function applyTableEdit(view: EditorView, action: 'format' | 'insertRow' | 'insertColumn') {
+  const table = findCurrentMarkdownTable(view);
+  if (!table) return;
+
+  const rows = table.lines.map(parseTableRow);
+  const width = Math.max(1, ...rows.map((row) => row.length));
+  const normalized = rows.map((row) => normalizeTableRow(row, width));
+  const activeRowIndex = Math.max(0, Math.min(table.activeLineNumber - table.startLineNumber, normalized.length - 1));
+  const activeColumnIndex = findActiveTableColumn(view, table.lines[activeRowIndex], normalized[activeRowIndex].length);
+
+  if (action === 'insertRow') {
+    const blank = Array.from({ length: width }, () => '');
+    normalized.splice(activeRowIndex + 1, 0, blank);
+  }
+
+  if (action === 'insertColumn') {
+    normalized.forEach((row, rowIndex) => {
+      row.splice(activeColumnIndex + 1, 0, rowIndex === 0 ? 'Column' : '');
+    });
+  }
+
+  const markdown = formatMarkdownTable(normalized);
+  view.dispatch({
+    changes: { from: table.from, to: table.to, insert: markdown },
+    selection: { anchor: table.from, head: table.from + markdown.length },
+    scrollIntoView: true
+  });
+  view.focus();
+}
+
+async function pasteDelimitedTable(view: EditorView) {
+  const text = await navigator.clipboard.readText();
+  const rows = parseDelimitedRows(text);
+  if (rows.length === 0) return;
+
+  const markdown = formatMarkdownTable(rows);
+  const selection = view.state.selection.main;
+  const prefix = selection.from > 0 && view.state.sliceDoc(selection.from - 1, selection.from) !== '\n' ? '\n\n' : '';
+  const suffix = selection.to < view.state.doc.length && view.state.sliceDoc(selection.to, selection.to + 1) !== '\n' ? '\n\n' : '';
+  view.dispatch({
+    changes: { from: selection.from, to: selection.to, insert: `${prefix}${markdown}${suffix}` },
+    selection: { anchor: selection.from + prefix.length, head: selection.from + prefix.length + markdown.length },
+    scrollIntoView: true
+  });
+  view.focus();
+}
+
+function placeholderForPrefix(prefix: string) {
+  if (prefix.startsWith('#')) return 'Heading';
+  if (prefix === '>') return 'Quote';
+  if (prefix === '- [ ]') return 'Task item';
+  return 'List item';
+}
+
+function findCurrentMarkdownTable(view: EditorView) {
+  const { doc, selection } = view.state;
+  const activeLine = doc.lineAt(selection.main.head);
+  if (!isTableRow(activeLine.text)) return null;
+
+  let start = activeLine.number;
+  while (start > 1 && isTableRow(doc.line(start - 1).text)) {
+    start -= 1;
+  }
+
+  let end = activeLine.number;
+  while (end < doc.lines && isTableRow(doc.line(end + 1).text)) {
+    end += 1;
+  }
+
+  if (end - start < 1) return null;
+  const startLine = doc.line(start);
+  const endLine = doc.line(end);
+  return {
+    from: startLine.from,
+    to: endLine.to,
+    startLineNumber: start,
+    activeLineNumber: activeLine.number,
+    lines: Array.from({ length: end - start + 1 }, (_, index) => doc.line(start + index).text)
+  };
+}
+
+function isTableRow(line: string) {
+  const trimmed = line.trim();
+  return trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.includes('|');
+}
+
+function parseTableRow(line: string) {
+  const trimmed = line.trim();
+  const withoutEdges = trimmed.replace(/^\|/, '').replace(/\|$/, '');
+  return splitMarkdownTableRow(withoutEdges).map((cell) => {
+    const normalized = cell.trim();
+    return /^:?-{3,}:?$/.test(normalized) ? '---' : normalized;
+  });
+}
+
+function splitMarkdownTableRow(row: string) {
+  const cells: string[] = [];
+  let current = '';
+  let escaped = false;
+  for (const char of row) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      current += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '|') {
+      cells.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current);
+  return cells;
+}
+
+function normalizeTableRow(row: string[], width: number) {
+  return Array.from({ length: width }, (_, index) => row[index] ?? '');
+}
+
+function findActiveTableColumn(view: EditorView, lineText: string, width: number) {
+  const line = view.state.doc.lineAt(view.state.selection.main.head);
+  const offset = view.state.selection.main.head - line.from;
+  let column = 0;
+  let escaped = false;
+  for (let index = 0; index < Math.min(offset, lineText.length); index += 1) {
+    const char = lineText[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '|') {
+      column += 1;
+    }
+  }
+  return Math.min(Math.max(0, column - 1), Math.max(0, width - 1));
+}
+
+function formatMarkdownTable(rows: string[][]) {
+  const width = Math.max(1, ...rows.map((row) => row.length));
+  const normalized = rows.map((row) => normalizeTableRow(row, width));
+  if (normalized.length === 0) return '';
+
+  const header = normalized[0].map((cell, index) => {
+    const value = cell && cell !== '---' ? cell : `Column ${index + 1}`;
+    return value;
+  });
+  const body = normalized.slice(1).filter((row, index) => index !== 0 || !isDividerRow(row));
+  const allRows = [header, ...body];
+  const widths = Array.from({ length: width }, (_, column) => {
+    const maxCell = Math.max(...allRows.map((row) => displayCell(row[column]).length), 3);
+    return maxCell;
+  });
+  const divider = widths.map((size) => '-'.repeat(Math.max(3, size)));
+
+  return [header, divider, ...body]
+    .map((row) => `| ${row.map((cell, index) => displayCell(cell).padEnd(widths[index], ' ')).join(' | ')} |`)
+    .join('\n');
+}
+
+function isDividerRow(row: string[]) {
+  return row.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function displayCell(value: string) {
+  return value.trim().replace(/\n/g, '<br>').replace(/\|/g, '\\|');
+}
+
+function parseDelimitedRows(text: string) {
+  const lines = text.trim().split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (lines.length === 0) return [];
+  const delimiter = text.includes('\t') ? '\t' : ',';
+  return lines.map((line) => splitDelimitedLine(line, delimiter).map((cell) => cell.trim()));
+}
+
+function splitDelimitedLine(line: string, delimiter: string) {
+  if (delimiter === '\t') return line.split('\t');
+
+  const cells: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (char === delimiter && !inQuotes) {
+      cells.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current);
+  return cells;
+}
+
+function ToolbarButton({
+  icon,
+  label,
+  title,
+  onClick
+}: {
+  icon: ReactNode;
+  label?: string;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-full px-1.5 text-[11px] font-medium transition-colors hover:bg-bg-hover hover:text-text-primary"
+      title={title}
+    >
+      {icon}
+      {label && <span className="sr-only">{label}</span>}
+    </button>
+  );
+}
+
+function ToolbarDivider() {
+  return <div className="mx-0.5 h-4 w-px shrink-0 bg-border-subtle" />;
+}
+
+function FindReplacePanel({
+  locale,
+  query,
+  replaceText,
+  matchCase,
+  matchCount,
+  activeIndex,
+  canReplace,
+  onQueryChange,
+  onReplaceTextChange,
+  onMatchCaseChange,
+  onPrevious,
+  onNext,
+  onReplaceCurrent,
+  onReplaceAll,
+  onClose
+}: {
+  locale: 'zh' | 'en';
+  query: string;
+  replaceText: string;
+  matchCase: boolean;
+  matchCount: number;
+  activeIndex: number;
+  canReplace: boolean;
+  onQueryChange: (value: string) => void;
+  onReplaceTextChange: (value: string) => void;
+  onMatchCaseChange: (value: boolean) => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  onReplaceCurrent: () => void;
+  onReplaceAll: () => void;
+  onClose: () => void;
+}) {
+  const matchLabel = !query
+    ? (locale === 'zh' ? '输入关键词' : 'Type to find')
+    : matchCount > 0
+      ? `${activeIndex + 1}/${matchCount}`
+      : (locale === 'zh' ? '无匹配' : 'No matches');
+
+  return (
+    <div className="absolute right-5 top-5 z-30 w-[min(30rem,calc(100%-2.5rem))] rounded-md border border-border-subtle bg-bg-base shadow-xl">
+      <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
+        <Search size={14} className="shrink-0 text-accent" />
+        <input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          autoFocus
+          placeholder={locale === 'zh' ? '查找当前文档' : 'Find in current document'}
+          className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary outline-none placeholder:text-text-tertiary"
+        />
+        <span className="shrink-0 rounded border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">
+          {matchLabel}
+        </span>
+        <button onClick={onPrevious} disabled={!matchCount} className="rounded p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary disabled:opacity-40">
+          <ChevronUp size={14} />
+        </button>
+        <button onClick={onNext} disabled={!matchCount} className="rounded p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary disabled:opacity-40">
+          <ChevronDown size={14} />
+        </button>
+        <button onClick={onClose} className="rounded p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary">
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="space-y-2 px-3 py-3">
+        <label className="flex items-center gap-2 text-[12px] text-text-secondary">
+          <input
+            type="checkbox"
+            checked={matchCase}
+            onChange={(event) => onMatchCaseChange(event.target.checked)}
+            className="size-3 accent-[var(--color-accent)]"
+          />
+          {locale === 'zh' ? '区分大小写' : 'Match case'}
+        </label>
+
+        <div className="flex items-center gap-2">
+          <Replace size={14} className="shrink-0 text-text-tertiary" />
+          <input
+            value={replaceText}
+            onChange={(event) => onReplaceTextChange(event.target.value)}
+            disabled={!canReplace}
+            placeholder={canReplace ? (locale === 'zh' ? '替换为' : 'Replace with') : (locale === 'zh' ? '只读文件不可替换' : 'Read-only file')}
+            className="min-w-0 flex-1 rounded-md border border-border-subtle bg-bg-panel px-2 py-1.5 text-[12px] text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent disabled:opacity-50"
+          />
+          <button
+            onClick={onReplaceCurrent}
+            disabled={!canReplace || !matchCount}
+            className="rounded-md border border-border-subtle bg-bg-panel px-2 py-1.5 text-[12px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
+          >
+            {locale === 'zh' ? '替换' : 'Replace'}
+          </button>
+          <button
+            onClick={onReplaceAll}
+            disabled={!canReplace || !matchCount}
+            className="rounded-md bg-accent px-2 py-1.5 text-[12px] font-medium text-white hover:bg-accent/90 disabled:opacity-40"
+          >
+            {locale === 'zh' ? '全部' : 'All'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function findDocumentMatches(content: string, query: string, matchCase: boolean): FindMatch[] {
+  if (!query) return [];
+  const haystack = matchCase ? content : content.toLowerCase();
+  const needle = matchCase ? query : query.toLowerCase();
+  if (!needle) return [];
+
+  const matches: FindMatch[] = [];
+  let from = 0;
+  while (from <= haystack.length) {
+    const index = haystack.indexOf(needle, from);
+    if (index === -1) break;
+    matches.push({ from: index, to: index + query.length });
+    from = index + Math.max(needle.length, 1);
+  }
+  return matches;
+}
+
+function normalizeMatchIndex(index: number, length: number) {
+  if (length <= 0) return 0;
+  return ((index % length) + length) % length;
+}
+
+function fileNameWithoutExtension(path: string) {
+  const name = path.split(/[\\/]/).pop() ?? '';
+  return name.replace(/\.[^.]+$/, '').trim();
 }
 
 function getActionRunningText(action: EditorAiPromptKey, locale: 'zh' | 'en') {

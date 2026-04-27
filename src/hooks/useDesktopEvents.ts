@@ -1,8 +1,11 @@
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useEffect } from 'react';
 import { getSettings, openDirectory, openMarkdownFileDialog, takeStartupMarkdownPaths } from '../lib/fs';
 import {
+  checkActiveFileExternalModification,
   createUntitledMarkdownFile,
+  ensureCanReplaceWorkspaceDocuments,
   openTextPath,
   openWorkspacePath,
   refreshWorkspaceTree,
@@ -17,8 +20,18 @@ type DragDropPayload = {
   position?: { x: number; y: number };
 };
 
+const IMAGE_EXTENSION_PATTERN = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+
 export function useDesktopEvents() {
-  const { toggleSidebar, toggleAiPanel, toggleCommandPalette } = useStore();
+  const {
+    toggleSidebar,
+    toggleAiPanel,
+    toggleCommandPalette,
+    autoSaveEnabled,
+    isDirty,
+    activeFile,
+    activeFileContent
+  } = useStore();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -31,6 +44,18 @@ export function useDesktopEvents() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleCommandPalette]);
+
+  useEffect(() => {
+    if (!autoSaveEnabled || !isDirty || !activeFile?.path || activeFile.readOnly || !activeFile.isMarkdown) return;
+
+    const timeoutId = window.setTimeout(() => {
+      const state = useStore.getState();
+      if (!state.autoSaveEnabled || !state.isDirty || !state.activeFile?.path || state.activeFile.readOnly || !state.activeFile.isMarkdown) return;
+      void saveActiveFile();
+    }, 1800);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeFile?.isMarkdown, activeFile?.path, activeFile?.readOnly, activeFileContent, autoSaveEnabled, isDirty]);
 
   useEffect(() => {
     const disposers: Array<() => void> = [];
@@ -67,6 +92,7 @@ export function useDesktopEvents() {
       const paths = event.payload.paths ?? [];
       const firstPath = paths[0];
       if (!firstPath) return;
+      if (paths.some((path) => IMAGE_EXTENSION_PATTERN.test(path))) return;
 
       void openTextPath(firstPath).catch(() => {
         void openWorkspacePath(firstPath);
@@ -80,6 +106,7 @@ export function useDesktopEvents() {
         void refreshWorkspaceTree(event.payload).catch((err) => {
           console.error('Failed to refresh workspace tree', err);
         });
+        void checkActiveFileExternalModification();
       }, 350);
     }).then((dispose) => disposers.push(dispose));
 
@@ -108,4 +135,31 @@ export function useDesktopEvents() {
       for (const dispose of disposers) dispose();
     };
   }, [toggleAiPanel, toggleSidebar]);
+
+  useEffect(() => {
+    let allowClose = false;
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void getCurrentWindow().onCloseRequested(async (event) => {
+      if (allowClose) return;
+      const dirtyTabs = useStore.getState().documentTabs.some((tab) => tab.isDirty) || useStore.getState().isDirty;
+      if (!dirtyTabs) return;
+
+      event.preventDefault();
+      const canClose = await ensureCanReplaceWorkspaceDocuments();
+      if (!canClose) return;
+
+      allowClose = true;
+      await getCurrentWindow().close();
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 }

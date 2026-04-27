@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type AiProviderKind = 'openai' | 'anthropic' | 'gemini';
 
@@ -30,10 +31,25 @@ type GenerateOptions = {
   prompt: string;
   context?: string;
   mode?: 'chat' | 'rewrite';
+  signal?: AbortSignal;
 };
 
 type TauriAiGenerateResult = {
   text: string;
+};
+
+type AiStreamPayload = {
+  requestId: string;
+  provider?: string;
+  model?: string | null;
+  text?: string;
+  error?: string;
+};
+
+type StreamOptions = GenerateOptions & {
+  onStart?: () => void;
+  onDelta: (delta: string, fullText: string) => void;
+  onEnd?: (fullText: string) => void;
 };
 
 export type AiModelTestResult = {
@@ -174,19 +190,31 @@ export function saveAiConfig(config: AiConfig) {
   sessionStorage.setItem(SESSION_CONFIG_KEY, JSON.stringify(normalizeAiConfig(config)));
 }
 
-export async function askAI(config: AiConfig, prompt: string, context?: string): Promise<string> {
-  return generateText(config, { prompt, context, mode: 'chat' });
+export async function askAI(config: AiConfig, prompt: string, context?: string, signal?: AbortSignal): Promise<string> {
+  return generateText(config, { prompt, context, mode: 'chat', signal });
+}
+
+export async function streamAI(
+  config: AiConfig,
+  prompt: string,
+  context: string | undefined,
+  onDelta: (delta: string, fullText: string) => void,
+  signal?: AbortSignal
+): Promise<string> {
+  return generateTextStream(config, { prompt, context, mode: 'chat', signal, onDelta });
 }
 
 export async function modifyTextWithAI(
   config: AiConfig,
   text: string,
-  instruction: string
+  instruction: string,
+  signal?: AbortSignal
 ): Promise<string> {
   return generateText(config, {
     prompt: instruction,
     context: text,
-    mode: 'rewrite'
+    mode: 'rewrite',
+    signal
   });
 }
 
@@ -207,6 +235,7 @@ export async function testAiModel(config: AiConfig): Promise<AiModelTestResult> 
 async function generateText(config: AiConfig, options: GenerateOptions): Promise<string> {
   const normalized = normalizeAiConfig(config);
   validateAiConfig(normalized);
+  throwIfAborted(options.signal);
 
   const result = await withTimeout(invoke<TauriAiGenerateResult>('generate_ai_text', {
     request: {
@@ -217,22 +246,171 @@ async function generateText(config: AiConfig, options: GenerateOptions): Promise
       context: options.context ?? null,
       mode: options.mode ?? 'chat'
     }
-  }), 65_000);
+  }), 65_000, options.signal);
 
+  throwIfAborted(options.signal);
   return result.text.trim();
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function generateTextStream(config: AiConfig, options: StreamOptions): Promise<string> {
+  const normalized = normalizeAiConfig(config);
+  validateAiConfig(normalized);
+  throwIfAborted(options.signal);
+
+  const requestId = `ai-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const unlisteners: UnlistenFn[] = [];
+  let fullText = '';
+  let settled = false;
+  let timer: number | undefined;
+  let abortHandler: (() => void) | null = null;
+
+  const cleanup = () => {
+    if (timer !== undefined) window.clearTimeout(timer);
+    for (const unlisten of unlisteners) unlisten();
+    if (abortHandler) options.signal?.removeEventListener('abort', abortHandler);
+  };
+
+  const cancelBackend = () => {
+    void invoke('cancel_ai_stream', { requestId }).catch(() => undefined);
+  };
+
+  const promise = new Promise<string>((resolve, reject) => {
+    const finish = (result: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result.trim());
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const resetTimeout = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        cancelBackend();
+        fail(new Error('AI stream timed out. Check local environment variables, network, or model name.'));
+      }, 130_000);
+    };
+
+    void (async () => {
+      try {
+        unlisteners.push(
+          await listen<AiStreamPayload>('inkstack://ai-stream-start', (event) => {
+            if (event.payload.requestId !== requestId || settled) return;
+            options.onStart?.();
+            resetTimeout();
+          }),
+          await listen<AiStreamPayload>('inkstack://ai-stream-delta', (event) => {
+            if (event.payload.requestId !== requestId || settled) return;
+            const delta = event.payload.text ?? '';
+            if (!delta) return;
+            fullText += delta;
+            options.onDelta(delta, fullText);
+            resetTimeout();
+          }),
+          await listen<AiStreamPayload>('inkstack://ai-stream-end', (event) => {
+            if (event.payload.requestId !== requestId || settled) return;
+            options.onEnd?.(fullText);
+            finish(fullText);
+          }),
+          await listen<AiStreamPayload>('inkstack://ai-stream-error', (event) => {
+            if (event.payload.requestId !== requestId || settled) return;
+            fail(new Error(event.payload.error || 'AI stream failed.'));
+          })
+        );
+
+        abortHandler = () => {
+          cancelBackend();
+          fail(abortError());
+        };
+        options.signal?.addEventListener('abort', abortHandler, { once: true });
+        if (options.signal?.aborted) {
+          abortHandler();
+          return;
+        }
+        resetTimeout();
+
+        await invoke('generate_ai_text_stream', {
+          requestId,
+          request: {
+            kind: normalized.kind,
+            model: normalized.model,
+            temperature: normalized.temperature,
+            prompt: options.prompt,
+            context: options.context ?? null,
+            mode: options.mode ?? 'chat'
+          }
+        });
+      } catch (error) {
+        fail(error);
+      }
+    })();
+  });
+
+  if (options.signal?.aborted) {
+    cancelBackend();
+    throw abortError();
+  }
+
+  return promise;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+
     const timer = window.setTimeout(() => {
-      reject(new Error('AI 请求超时，请检查本机环境变量、网络或模型名称。'));
+      reject(new Error('AI request timed out. Check local environment variables, network, or model name.'));
     }, timeoutMs);
+    const abort = () => {
+      window.clearTimeout(timer);
+      reject(abortError());
+    };
+    signal?.addEventListener('abort', abort, { once: true });
 
     promise
       .then(resolve)
       .catch(reject)
-      .finally(() => window.clearTimeout(timer));
+      .finally(() => {
+        window.clearTimeout(timer);
+        signal?.removeEventListener('abort', abort);
+      });
   });
+}
+
+export function isAiAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+export function sanitizeAiError(error: unknown, locale: 'zh' | 'en' = 'zh') {
+  if (isAiAbortError(error)) {
+    return locale === 'zh' ? '已取消 AI 请求。' : 'AI request cancelled.';
+  }
+
+  const raw = error instanceof Error ? error.message : String(error ?? '');
+  const withoutKeys = raw
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-***')
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, 'Bearer ***')
+    .replace(/(api[_-]?key["'\s:=]+)[A-Za-z0-9._~+/=-]{8,}/gi, '$1***')
+    .replace(/(x-api-key:\s*)[A-Za-z0-9._~+/=-]{8,}/gi, '$1***')
+    .replace(/(x-goog-api-key:\s*)[A-Za-z0-9._~+/=-]{8,}/gi, '$1***');
+
+  const compact = withoutKeys.trim() || (locale === 'zh' ? 'AI 请求失败。' : 'AI request failed.');
+  return compact.length > 700 ? `${compact.slice(0, 700)}...` : compact;
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw abortError();
+}
+
+function abortError() {
+  return new DOMException('AI request cancelled', 'AbortError');
 }
 
 function normalizeAiConfig(config: AiConfig): AiConfig {

@@ -1,7 +1,11 @@
 mod commands;
 mod models;
 
-use std::{collections::HashSet, path::PathBuf, sync::Mutex};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Arc, Mutex},
+};
 
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
@@ -18,6 +22,13 @@ pub struct AppState {
     allowed_files: Mutex<HashSet<PathBuf>>,
     // Startup events can fire before the WebView listener is ready; the frontend drains this once.
     startup_markdown_paths: Mutex<Vec<String>>,
+    // AI streams are keyed by a frontend request id so a cancel button can stop the curl process.
+    ai_streams: Mutex<HashMap<String, AiStreamControl>>,
+}
+
+pub struct AiStreamControl {
+    pub cancelled: Arc<AtomicBool>,
+    pub pid: Option<u32>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -120,11 +131,19 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::update_settings,
+            commands::prune_missing_recent_entries,
             commands::generate_ai_text,
+            commands::generate_ai_text_stream,
+            commands::cancel_ai_stream,
             commands::test_ai_model,
             commands::take_startup_markdown_paths,
             commands::choose_markdown_file,
             commands::choose_markdown_save_path,
+            commands::import_css_theme,
+            commands::list_imported_css_themes,
+            commands::read_imported_css_theme,
+            commands::delete_imported_css_theme,
+            commands::export_css_theme,
             commands::choose_workspace,
             commands::scan_directory,
             commands::scan_directory_children,
@@ -137,6 +156,7 @@ pub fn run() {
             commands::read_markdown_file,
             commands::read_text_file,
             commands::resolve_markdown_asset,
+            commands::import_markdown_asset,
             commands::open_markdown_file,
             commands::open_text_file,
             commands::save_markdown_file,

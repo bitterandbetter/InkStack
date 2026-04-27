@@ -32,6 +32,12 @@
     --color-accent: #007AFF;
     --color-ai-user: #2563EB; 
     --color-ai-bot: #F2F2F7;
+    --color-code-bg: #f6f8fa;
+    --color-code-header-bg: #eef2f6;
+    --color-code-text: #24292f;
+    --color-code-muted: #57606a;
+    --color-inline-code-bg: #f0f3f6;
+    --color-inline-code-text: #0f4c81;
   }
   
   .dark {
@@ -46,6 +52,52 @@
     --color-accent: #0a84ff;
     --color-ai-user: #0a84ff; 
     --color-ai-bot: #3a3a3c;
+    --color-code-bg: #1f232a;
+    --color-code-header-bg: #282d35;
+    --color-code-text: #e6edf3;
+    --color-code-muted: #9aa4b2;
+    --color-inline-code-bg: #2f3540;
+    --color-inline-code-text: #9fd1ff;
+  }
+
+  html[data-inkstack-theme="focus"] {
+    --color-bg-base: #fbfaf6;
+    --color-bg-panel: #f0eee7;
+    --color-bg-hover: #e7e2d7;
+    --color-bg-active: #ddd5c7;
+    --color-border-subtle: #d8d0c2;
+    --color-text-primary: #28231d;
+    --color-text-secondary: #6f6658;
+    --color-text-tertiary: #9a8f80;
+    --color-accent: #2f7d63;
+    --color-ai-user: #2f7d63;
+    --color-ai-bot: #eee8dc;
+    --color-code-bg: #f3efe5;
+    --color-code-header-bg: #e7e0d2;
+    --color-code-text: #2f2a22;
+    --color-code-muted: #766b5d;
+    --color-inline-code-bg: #ece4d6;
+    --color-inline-code-text: #1f6b52;
+  }
+
+  html[data-inkstack-theme="code-docs"] {
+    --color-bg-base: #111318;
+    --color-bg-panel: #171b22;
+    --color-bg-hover: #202632;
+    --color-bg-active: #283140;
+    --color-border-subtle: #2f3948;
+    --color-text-primary: #f2f5f8;
+    --color-text-secondary: #b9c2cf;
+    --color-text-tertiary: #768394;
+    --color-accent: #48b0f7;
+    --color-ai-user: #2563eb;
+    --color-ai-bot: #202632;
+    --color-code-bg: #0f141b;
+    --color-code-header-bg: #1b2430;
+    --color-code-text: #eef4fb;
+    --color-code-muted: #8fa1b7;
+    --color-inline-code-bg: #202b3a;
+    --color-inline-code-text: #7dccff;
   }
 }
 
@@ -58,5 +110,66 @@
   
   .cm-editor {
     background-color: var(--color-bg-base) !important;
+  }
+
+  .inkstack-inline-code {
+    background-color: var(--color-inline-code-bg);
+    border-color: color-mix(in srgb, var(--color-accent) 22%, var(--color-border-subtle));
+    color: var(--color-inline-code-text);
+  }
+
+  .inkstack-code-toolbar {
+    background-color: var(--color-code-header-bg);
+    border-color: var(--color-border-subtle);
+    color: var(--color-code-muted);
+  }
+
+  .inkstack-code-copy:hover {
+    color: var(--color-text-primary);
+  }
+
+  .inkstack-code-surface {
+    background-color: var(--color-code-bg);
+    border-color: var(--color-border-subtle);
+  }
+
+  .inkstack-code-surface code.hljs {
+    background: transparent;
+    color: var(--color-code-text);
+    display: block;
+    overflow-x: visible;
+    padding: 0;
+  }
+
+  .inkstack-code-surface code:not(.hljs) {
+    color: var(--color-code-text);
+    display: block;
+    overflow-x: visible;
+    padding: 0;
+    white-space: pre;
+  }
+
+  .inkstack-code-surface pre {
+    background: transparent !important;
+  }
+
+  .inkstack-code-surface .hljs {
+    background: transparent;
+  }
+
+  .inkstack-reading-surface {
+    max-width: var(--inkstack-reading-width);
+    font-family: var(--inkstack-reading-font-family);
+    font-size: var(--inkstack-reading-font-size);
+    line-height: var(--inkstack-reading-line-height);
+  }
+
+  .inkstack-reading-surface :where(p, ul, ol, blockquote, pre, table) {
+    margin-top: var(--inkstack-reading-paragraph-spacing);
+    margin-bottom: var(--inkstack-reading-paragraph-spacing);
+  }
+
+  .inkstack-reading-surface :where(h1, h2, h3, h4, h5, h6) {
+    line-height: 1.25;
   }
 }

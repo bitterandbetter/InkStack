@@ -9,13 +9,14 @@ import {
   openTextFile,
   readMarkdownFile,
   readTextFile,
+  getMarkdownFileMetadata,
   revealMarkdownFile,
   renameWorkspaceEntry,
   writeFileContent,
   writeFileContentAs
 } from './fs';
 import { fileNameFromPath } from './path';
-import { useStore } from '../store';
+import { useStore, type DocumentTab } from '../store';
 
 export async function ensureCanReplaceActiveDocument(): Promise<boolean> {
   const {
@@ -47,8 +48,73 @@ export async function ensureCanReplaceActiveDocument(): Promise<boolean> {
   return true;
 }
 
+export async function ensureCanReplaceWorkspaceDocuments(): Promise<boolean> {
+  const {
+    locale,
+    requestUnsavedChangeChoice,
+    markSaveError
+  } = useStore.getState();
+  const dirtyTabs = getCurrentDocumentTabs().filter((tab) => tab.isDirty);
+
+  if (dirtyTabs.length === 0) return true;
+  if (dirtyTabs.length === 1) {
+    const tab = dirtyTabs[0];
+    const choice = await requestUnsavedChangeChoice(
+      locale === 'zh' ? '文档尚未保存' : 'Unsaved Changes',
+      locale === 'zh'
+        ? `“${tab.file.name}”还有未保存的修改。继续前要保存吗？`
+        : `"${tab.file.name}" has unsaved changes. Save before continuing?`
+    );
+
+    if (choice === 'cancel') return false;
+    if (choice === 'discard') return true;
+
+    return saveDirtyTabs([tab.id], locale, markSaveError);
+  }
+
+  const previewNames = dirtyTabs.slice(0, 4).map((tab) => tab.file.name).join('、');
+  const remainingCount = dirtyTabs.length - 4;
+  const choice = await requestUnsavedChangeChoice(
+    locale === 'zh' ? '多个标签页尚未保存' : 'Multiple Unsaved Tabs',
+    locale === 'zh'
+      ? `${dirtyTabs.length} 个标签页还有未保存的修改：${previewNames}${remainingCount > 0 ? ` 等 ${dirtyTabs.length} 个` : ''}。继续前要全部保存吗？`
+      : `${dirtyTabs.length} tabs have unsaved changes: ${previewNames}${remainingCount > 0 ? ` and ${remainingCount} more` : ''}. Save all before continuing?`
+  );
+
+  if (choice === 'cancel') return false;
+  if (choice === 'discard') return true;
+
+  return saveDirtyTabs(dirtyTabs.map((tab) => tab.id), locale, markSaveError);
+}
+
+export async function ensureCanModifyWorkspaceEntry(path: string): Promise<boolean> {
+  const {
+    locale,
+    requestUnsavedChangeChoice,
+    markSaveError
+  } = useStore.getState();
+  const dirtyTabs = getCurrentDocumentTabs().filter((tab) => (
+    tab.isDirty && isSameOrChildPath(tab.file.path, path)
+  ));
+
+  if (dirtyTabs.length === 0) return true;
+
+  const choice = await requestUnsavedChangeChoice(
+    locale === 'zh' ? '相关标签页尚未保存' : 'Related Tabs Have Unsaved Changes',
+    locale === 'zh'
+      ? `${dirtyTabs.length} 个将受影响的标签页还有未保存修改。继续前要保存吗？`
+      : `${dirtyTabs.length} affected tabs have unsaved changes. Save before continuing?`
+  );
+
+  if (choice === 'cancel') return false;
+  if (choice === 'discard') return true;
+
+  return saveDirtyTabs(dirtyTabs.map((tab) => tab.id), locale, markSaveError);
+}
+
+
 export async function openWorkspacePath(path: string, options: { skipUnsavedCheck?: boolean } = {}) {
-  if (!options.skipUnsavedCheck && !(await ensureCanReplaceActiveDocument())) return false;
+  if (!options.skipUnsavedCheck && !(await ensureCanReplaceWorkspaceDocuments())) return false;
 
   const tree = await buildFileTree(path);
   const { setRootPath, setFileTree } = useStore.getState();
@@ -79,9 +145,21 @@ export async function refreshWorkspaceTree(path?: string | null) {
 }
 
 export async function openMarkdownPath(path: string, line?: number | null, options: { skipUnsavedCheck?: boolean } = {}) {
-  const current = useStore.getState().activeFile;
+  const currentState = useStore.getState();
+  const current = currentState.activeFile;
   const sameFile = Boolean(current?.path && current.path === path);
-  if (!sameFile && !options.skipUnsavedCheck && !(await ensureCanReplaceActiveDocument())) return false;
+  if (!sameFile && options.skipUnsavedCheck === false && !(await ensureCanReplaceActiveDocument())) return false;
+
+  const existingTab = currentState.documentTabs.find((tab) => tab.file.path === path);
+  if (existingTab) {
+    const { switchDocumentTab, setPendingEditorLine, setViewMode } = useStore.getState();
+    switchDocumentTab(existingTab.id);
+    if (line && line > 0) {
+      setPendingEditorLine(line);
+      setViewMode('split');
+    }
+    return true;
+  }
 
   const document = await openMarkdownFile(path);
   const { setActiveFile, setPendingEditorLine, setViewMode } = useStore.getState();
@@ -110,9 +188,23 @@ export async function openMarkdownPath(path: string, line?: number | null, optio
 }
 
 export async function openTextPath(path: string, line?: number | null, options: { skipUnsavedCheck?: boolean } = {}) {
-  const current = useStore.getState().activeFile;
+  const currentState = useStore.getState();
+  const current = currentState.activeFile;
   const sameFile = Boolean(current?.path && current.path === path);
-  if (!sameFile && !options.skipUnsavedCheck && !(await ensureCanReplaceActiveDocument())) return false;
+  if (!sameFile && options.skipUnsavedCheck === false && !(await ensureCanReplaceActiveDocument())) return false;
+
+  const existingTab = currentState.documentTabs.find((tab) => tab.file.path === path);
+  if (existingTab) {
+    const { switchDocumentTab, setPendingEditorLine, setViewMode } = useStore.getState();
+    switchDocumentTab(existingTab.id);
+    if (line && line > 0) setPendingEditorLine(line);
+    if (!existingTab.file.isMarkdown) {
+      setViewMode('edit');
+    } else if (line && line > 0) {
+      setViewMode('split');
+    }
+    return true;
+  }
 
   const document = await openTextFile(path);
   const { setActiveFile, setPendingEditorLine, setViewMode } = useStore.getState();
@@ -185,6 +277,37 @@ export async function saveActiveFile(): Promise<boolean> {
   }
 }
 
+async function saveDirtyTabs(
+  tabIds: string[],
+  locale: 'zh' | 'en',
+  markSaveError: (message: string) => void
+) {
+  const { activeTabId, switchDocumentTab } = useStore.getState();
+
+  for (const tabId of tabIds) {
+    const latest = useStore.getState();
+    const tab = getCurrentDocumentTabs().find((item) => item.id === tabId);
+    if (!tab || !tab.isDirty) continue;
+
+    if (latest.activeTabId !== tabId) {
+      switchDocumentTab(tabId);
+    }
+
+    const saved = await saveActiveFile();
+    const afterSave = useStore.getState();
+    if (!saved || afterSave.saveState === 'error') {
+      markSaveError(afterSave.saveMessage || (locale === 'zh' ? '保存失败，已取消后续操作。' : 'Save failed; action cancelled.'));
+      return false;
+    }
+  }
+
+  const finalState = useStore.getState();
+  if (activeTabId && finalState.documentTabs.some((tab) => tab.id === activeTabId)) {
+    finalState.switchDocumentTab(activeTabId);
+  }
+  return true;
+}
+
 export async function saveActiveFileAs(): Promise<boolean> {
   const {
     activeFile,
@@ -192,7 +315,9 @@ export async function saveActiveFileAs(): Promise<boolean> {
     markSaving,
     markSaved,
     markSaveError,
-    setActiveFile
+    setActiveFile,
+    closeDocumentTab,
+    activeTabId
   } = useStore.getState();
 
   if (!activeFile) return true;
@@ -219,6 +344,9 @@ export async function saveActiveFileAs(): Promise<boolean> {
     };
 
     setActiveFile(file, document.content, document.metadata);
+    if (activeTabId && activeTabId !== document.path) {
+      closeDocumentTab(activeTabId);
+    }
     markSaved(document.metadata);
     return true;
   } catch (err: any) {
@@ -229,14 +357,11 @@ export async function saveActiveFileAs(): Promise<boolean> {
 }
 
 export async function createUntitledMarkdownFile() {
-  if (!(await ensureCanReplaceActiveDocument())) return false;
   useStore.getState().createUntitledFile();
   return true;
 }
 
 export async function createMarkdownFileInWorkspace(parentPath: string, name: string) {
-  if (!(await ensureCanReplaceActiveDocument())) return false;
-
   const document = await createWorkspaceMarkdownFile(parentPath, name);
   await refreshWorkspaceTree();
   const { setActiveFile, setViewMode } = useStore.getState();
@@ -267,37 +392,23 @@ export async function createFolderInWorkspace(parentPath: string, name: string) 
 }
 
 export async function renameEntryInWorkspace(path: string, newName: string) {
-  const { activeFile, setActiveFile } = useStore.getState();
-  if (activeFile?.path === path && !(await ensureCanReplaceActiveDocument())) return false;
+  const { updateDocumentTabPath } = useStore.getState();
+  if (!(await ensureCanModifyWorkspaceEntry(path))) return false;
 
   const newPath = await renameWorkspaceEntry(path, newName);
   await refreshWorkspaceTree();
-
-  if (activeFile?.path === path) {
-    setActiveFile(
-      {
-        ...activeFile,
-        name: fileNameFromPath(newPath),
-        path: newPath
-      },
-      useStore.getState().activeFileContent,
-      useStore.getState().activeFileMetadata
-    );
-  }
+  updateDocumentTabPath(path, newPath, fileNameFromPath(newPath));
 
   return newPath;
 }
 
 export async function deleteEntryInWorkspace(path: string) {
-  const { activeFile, clearActiveFile } = useStore.getState();
-  if (activeFile?.path === path && !(await ensureCanReplaceActiveDocument())) return false;
+  const { closeDocumentTabsByPath } = useStore.getState();
+  if (!(await ensureCanModifyWorkspaceEntry(path))) return false;
 
   await deleteWorkspaceEntry(path);
   await refreshWorkspaceTree();
-
-  if (activeFile?.path === path) {
-    clearActiveFile();
-  }
+  closeDocumentTabsByPath(path);
 
   return true;
 }
@@ -347,9 +458,75 @@ export async function reloadActiveFileFromDisk(): Promise<boolean> {
   }
 }
 
+export async function checkActiveFileExternalModification(): Promise<boolean> {
+  const {
+    activeFile,
+    activeFileMetadata,
+    isDirty,
+    markSaveError,
+    openSaveConflict
+  } = useStore.getState();
+
+  if (!activeFile?.path || !activeFile.isMarkdown || !activeFileMetadata) return false;
+
+  try {
+    const metadata = await getMarkdownFileMetadata(activeFile.path);
+    if (
+      metadata.modifiedAt === activeFileMetadata.modifiedAt
+      && metadata.size === activeFileMetadata.size
+    ) {
+      return false;
+    }
+
+    if (!isDirty) {
+      return reloadActiveFileFromDisk();
+    }
+
+    const message = '文件已在外部被修改';
+    markSaveError(message);
+    openSaveConflict({
+      path: activeFile.path,
+      fileName: activeFile.name,
+      message
+    });
+    return true;
+  } catch (err) {
+    console.warn('Failed to check active file metadata', err);
+    return false;
+  }
+}
+
 function isExternalModificationError(message: string) {
   return message.includes('文件已在外部被修改')
     || message.toLowerCase().includes('externally modified');
+}
+
+function isSameOrChildPath(candidatePath: string, parentPath: string) {
+  if (!candidatePath || !parentPath) return false;
+  const normalizedCandidate = candidatePath.replace(/\/+$/, '');
+  const normalizedParent = parentPath.replace(/\/+$/, '');
+  return normalizedCandidate === normalizedParent
+    || normalizedCandidate.startsWith(`${normalizedParent}/`);
+}
+
+function getCurrentDocumentTabs(): DocumentTab[] {
+  const state = useStore.getState();
+  if (!state.activeTabId || !state.activeFile) return state.documentTabs;
+
+  const activeSnapshot: DocumentTab = {
+    id: state.activeTabId,
+    file: state.activeFile,
+    content: state.activeFileContent,
+    metadata: state.activeFileMetadata,
+    isDirty: state.isDirty,
+    saveState: state.saveState,
+    saveMessage: state.saveMessage,
+    currentEditorLine: state.currentEditorLine
+  };
+  const existing = state.documentTabs.findIndex((tab) => tab.id === state.activeTabId);
+  if (existing === -1) return [activeSnapshot, ...state.documentTabs];
+
+  return state.documentTabs.map((tab) => (tab.id === state.activeTabId ? activeSnapshot : tab));
 }
 
 function collectLoadedDirectoryPaths(nodes: FileNode[], limit = 80): string[] {

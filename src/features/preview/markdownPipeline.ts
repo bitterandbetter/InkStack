@@ -3,7 +3,6 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
-import rehypeHighlight from 'rehype-highlight';
 import type { ReactNode } from 'react';
 import type { PluggableList } from 'unified';
 
@@ -16,6 +15,7 @@ const markdownSanitizeSchema = {
     code: [
       ...(defaultSchema.attributes?.code || []),
       ['className', /^language-[\w-]+$/, 'math-inline', 'math-display'],
+      'dataMeta',
     ],
     span: [
       ...(defaultSchema.attributes?.span || []),
@@ -33,7 +33,6 @@ export const rehypePlugins: PluggableList = [
   // receive a cleaned tree. Keep this schema close to the plugin order when changing it.
   [rehypeSanitize, markdownSanitizeSchema],
   rehypeKatex,
-  rehypeHighlight,
 ];
 
 export interface HeadingEntry {

@@ -1,8 +1,12 @@
 use std::{
     fs,
-    io::Write,
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -13,12 +17,15 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::models::{
-    AiGenerateRequest, AiGenerateResult, AiModelTestResult, AppSettings,
-    CreateWorkspaceEntryRequest, DirectoryScanResult, FileEntry, FileMetadata, MarkdownAsset,
-    MarkdownDocument, MarkdownSearchResult, RenameWorkspaceEntryRequest, SaveExportRequest,
-    SaveMarkdownAsRequest, SaveMarkdownRequest, SaveMarkdownResult, TextDocument,
+    AiGenerateRequest, AiGenerateResult, AiModelTestResult, AiStreamDeltaPayload,
+    AiStreamEndPayload, AiStreamErrorPayload, AiStreamStartPayload, AppSettings,
+    CreateWorkspaceEntryRequest, CssThemeDocument, CssThemeSummary, DirectoryScanResult,
+    ExportCssThemeRequest, FileEntry, FileMetadata, ImportMarkdownAssetRequest,
+    ImportedMarkdownAsset, MarkdownAsset, MarkdownDocument, MarkdownSearchResult,
+    RenameWorkspaceEntryRequest, SaveExportRequest, SaveMarkdownAsRequest, SaveMarkdownRequest,
+    SaveMarkdownResult, TextDocument,
 };
-use crate::AppState;
+use crate::{AiStreamControl, AppState};
 
 #[tauri::command]
 pub async fn get_settings(app: tauri::AppHandle) -> Result<AppSettings, String> {
@@ -60,6 +67,42 @@ pub async fn update_settings(
 }
 
 #[tauri::command]
+pub async fn prune_missing_recent_entries(app: tauri::AppHandle) -> Result<AppSettings, String> {
+    let mut settings = get_settings(app.clone()).await?;
+    settings
+        .recent_workspaces
+        .retain(|path| Path::new(path).is_dir());
+    settings
+        .pinned_workspaces
+        .retain(|path| Path::new(path).is_dir());
+    settings
+        .recent_files
+        .retain(|path| Path::new(path).is_file() && is_markdown_path(Path::new(path)));
+    settings
+        .pinned_files
+        .retain(|path| Path::new(path).is_file() && is_markdown_path(Path::new(path)));
+
+    if settings
+        .last_workspace
+        .as_ref()
+        .is_some_and(|path| !Path::new(path).is_dir())
+    {
+        settings.last_workspace = None;
+    }
+
+    if settings
+        .last_file
+        .as_ref()
+        .is_some_and(|path| !Path::new(path).is_file() || !is_markdown_path(Path::new(path)))
+    {
+        settings.last_file = None;
+    }
+
+    update_settings(app, settings).await
+}
+
+
+#[tauri::command]
 pub async fn generate_ai_text(request: AiGenerateRequest) -> Result<AiGenerateResult, String> {
     let request = normalize_ai_request(request)?;
 
@@ -84,6 +127,75 @@ pub async fn generate_ai_text(request: AiGenerateRequest) -> Result<AiGenerateRe
             }),
         _ => Err("Unsupported AI provider kind".to_string()),
     }
+}
+
+#[tauri::command]
+pub async fn generate_ai_text_stream(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    request_id: String,
+    request: AiGenerateRequest,
+) -> Result<(), String> {
+    let request_id = request_id.trim().to_string();
+    if request_id.is_empty() {
+        return Err("AI stream request id is missing.".to_string());
+    }
+
+    let request = normalize_ai_request(request)?;
+    let spec = build_ai_stream_spec(&request)?;
+    let cancelled = Arc::new(AtomicBool::new(false));
+
+    {
+        let mut streams = state
+            .ai_streams
+            .lock()
+            .map_err(|_| "AI stream state is unavailable.".to_string())?;
+        if let Some(previous) = streams.remove(&request_id) {
+            previous.cancelled.store(true, Ordering::SeqCst);
+            terminate_process(previous.pid);
+        }
+        streams.insert(
+            request_id.clone(),
+            AiStreamControl {
+                cancelled: cancelled.clone(),
+                pid: None,
+            },
+        );
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(error) = stream_ai_with_curl(app.clone(), request_id.clone(), spec, cancelled) {
+            let _ = app.emit(
+                "inkstack://ai-stream-error",
+                AiStreamErrorPayload {
+                    request_id: request_id.clone(),
+                    error,
+                },
+            );
+        }
+        remove_ai_stream_control(&app, &request_id);
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cancel_ai_stream(
+    state: tauri::State<'_, AppState>,
+    request_id: String,
+) -> Result<(), String> {
+    let control = state
+        .ai_streams
+        .lock()
+        .map_err(|_| "AI stream state is unavailable.".to_string())?
+        .remove(request_id.trim());
+
+    if let Some(control) = control {
+        control.cancelled.store(true, Ordering::SeqCst);
+        terminate_process(control.pid);
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -184,6 +296,127 @@ pub async fn choose_markdown_save_path(
         .blocking_save_file();
 
     Ok(selected.map(|path| path.to_string()))
+}
+
+#[tauri::command]
+pub async fn import_css_theme(app: tauri::AppHandle) -> Result<Option<CssThemeDocument>, String> {
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("导入 InkStack CSS 主题")
+        .add_filter("CSS Theme", &["css"])
+        .blocking_pick_file();
+
+    let Some(path) = selected else {
+        return Ok(None);
+    };
+
+    let source_path = PathBuf::from(path.to_string());
+    let css = fs::read_to_string(&source_path).map_err(|error| error.to_string())?;
+    validate_css_theme(&source_path, &css)?;
+
+    let id = theme_id_from_name(
+        source_path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("custom-theme"),
+    );
+    let name = theme_name_from_path(&source_path);
+    let destination = imported_theme_path(&app, &id)?;
+
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(&destination, &css).map_err(|error| error.to_string())?;
+
+    Ok(Some(CssThemeDocument { id, name, css }))
+}
+
+#[tauri::command]
+pub async fn list_imported_css_themes(
+    app: tauri::AppHandle,
+) -> Result<Vec<CssThemeSummary>, String> {
+    let dir = imported_themes_dir(&app)?;
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut themes = fs::read_dir(&dir)
+        .map_err(|error| error.to_string())?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("css") {
+                return None;
+            }
+            let id = path.file_stem()?.to_str()?.to_string();
+            Some(CssThemeSummary {
+                id,
+                name: theme_name_from_path(&path),
+            })
+        })
+        .collect::<Vec<_>>();
+    themes.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    Ok(themes)
+}
+
+#[tauri::command]
+pub async fn read_imported_css_theme(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<CssThemeDocument, String> {
+    let id = theme_id_from_name(&id);
+    let path = imported_theme_path(&app, &id)?;
+    let css = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    validate_css_theme(&path, &css)?;
+
+    Ok(CssThemeDocument {
+        id,
+        name: theme_name_from_path(&path),
+        css,
+    })
+}
+
+#[tauri::command]
+pub async fn delete_imported_css_theme(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let id = theme_id_from_name(&id);
+    let path = imported_theme_path(&app, &id)?;
+    if path.exists() {
+        fs::remove_file(path).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn export_css_theme(
+    app: tauri::AppHandle,
+    request: ExportCssThemeRequest,
+) -> Result<Option<String>, String> {
+    let suggested_name = sanitize_css_theme_file_name(&request.suggested_name);
+    validate_css_theme(Path::new(&suggested_name), &request.css)?;
+
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("导出 InkStack CSS 主题")
+        .set_file_name(&suggested_name)
+        .add_filter("CSS Theme", &["css"])
+        .blocking_save_file();
+
+    let Some(path) = selected else {
+        return Ok(None);
+    };
+
+    let mut path = PathBuf::from(path.to_string());
+    if path.extension().is_none() {
+        path = path.with_extension("css");
+    }
+    validate_css_theme(&path, &request.css)?;
+    tokio::fs::write(&path, request.css)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(Some(path.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
@@ -406,6 +639,43 @@ pub async fn resolve_markdown_asset(
 
     Ok(MarkdownAsset {
         path: asset_path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn import_markdown_asset(
+    request: ImportMarkdownAssetRequest,
+    state: tauri::State<'_, AppState>,
+) -> Result<ImportedMarkdownAsset, String> {
+    let document_path = resolve_readable_markdown_path(&request.document_path, &state)?;
+    let source_path =
+        fs::canonicalize(Path::new(&request.source_path)).map_err(|error| error.to_string())?;
+    if !source_path.is_file() || !is_supported_image_path(&source_path) {
+        return Err("Only local image files can be imported".to_string());
+    }
+
+    let document_dir = document_path
+        .parent()
+        .ok_or_else(|| "Document has no parent directory".to_string())?;
+    let assets_dir = document_dir.join("assets");
+    tokio::fs::create_dir_all(&assets_dir)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let file_name = source_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "Image has no valid file name".to_string())?;
+    let safe_name = sanitize_asset_file_name(file_name)?;
+    let target_path = unique_child_path(&assets_dir, &safe_name)?;
+    tokio::fs::copy(&source_path, &target_path)
+        .await
+        .map_err(|error| error.to_string())?;
+    let target_path = fs::canonicalize(target_path).map_err(|error| error.to_string())?;
+
+    Ok(ImportedMarkdownAsset {
+        path: target_path.to_string_lossy().to_string(),
+        relative_src: format!("assets/{}", file_name_for_markdown(&target_path)?),
     })
 }
 
@@ -1038,6 +1308,46 @@ fn sanitize_child_name(value: &str, fallback: &str) -> Result<String, String> {
     }
 }
 
+fn sanitize_asset_file_name(value: &str) -> Result<String, String> {
+    let path = Path::new(value);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("image")
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let stem = stem.trim_matches(['-', '.', ' ']);
+    let stem = if stem.is_empty() { "image" } else { stem };
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_lowercase())
+        .ok_or_else(|| "Image file needs an extension".to_string())?;
+
+    if !matches!(
+        extension.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif"
+    ) {
+        return Err("Unsupported image extension".to_string());
+    }
+
+    Ok(format!("{stem}.{extension}"))
+}
+
+fn file_name_for_markdown(path: &Path) -> Result<String, String> {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| value.replace('\\', "/"))
+        .ok_or_else(|| "Imported image has no file name".to_string())
+}
+
 fn unique_child_path(parent: &Path, name: &str) -> Result<PathBuf, String> {
     let candidate = parent.join(name);
     if !candidate.exists() {
@@ -1064,6 +1374,101 @@ fn unique_child_path(parent: &Path, name: &str) -> Result<PathBuf, String> {
     }
 
     Err("Could not find an available name".to_string())
+}
+
+fn imported_themes_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|path| path.join("themes"))
+        .map_err(|error| error.to_string())
+}
+
+fn imported_theme_path(app: &tauri::AppHandle, id: &str) -> Result<PathBuf, String> {
+    Ok(imported_themes_dir(app)?.join(format!("{id}.css")))
+}
+
+fn theme_name_from_path(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|value| value.to_str())
+        .map(|value| value.replace(['-', '_'], " "))
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "Imported Theme".to_string())
+}
+
+fn theme_id_from_name(name: &str) -> String {
+    let id = name
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+
+    if id.is_empty() {
+        "custom-theme".to_string()
+    } else {
+        id
+    }
+}
+
+fn sanitize_css_theme_file_name(value: &str) -> String {
+    let name = value
+        .trim()
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            character => character,
+        })
+        .collect::<String>();
+    let name = name.trim_matches([' ', '.']);
+    let fallback = "inkstack-theme.css".to_string();
+
+    if name.is_empty() {
+        return fallback;
+    }
+
+    let path = Path::new(name);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("inkstack-theme");
+    format!("{stem}.css")
+}
+
+fn validate_css_theme(path: &Path, css: &str) -> Result<(), String> {
+    const MAX_THEME_BYTES: usize = 256 * 1024;
+
+    if path.extension().and_then(|value| value.to_str()) != Some("css") {
+        return Err("Only .css theme files can be imported".to_string());
+    }
+    if css.len() > MAX_THEME_BYTES {
+        return Err("Theme CSS is too large".to_string());
+    }
+    let lowered = css.to_lowercase();
+    if lowered.contains("@import") || lowered.contains("javascript:") {
+        return Err("Theme CSS cannot include @import or JavaScript URLs".to_string());
+    }
+    if lowered.contains("http://") || lowered.contains("https://") {
+        return Err("Theme CSS cannot reference remote resources".to_string());
+    }
+    if !css.contains("--color-")
+        && !css.contains("--font-")
+        && !css.contains("[data-inkstack-theme")
+    {
+        return Err("Theme CSS should define InkStack CSS variables".to_string());
+    }
+
+    Ok(())
 }
 
 fn sanitize_export_extension(value: &str) -> Result<String, String> {
@@ -1536,10 +1941,22 @@ fn normalize_settings(mut settings: AppSettings) -> AppSettings {
     settings.recent_workspaces.truncate(MAX_RECENT_ITEMS);
 
     settings
+        .pinned_workspaces
+        .retain(|workspace| !workspace.trim().is_empty());
+    settings.pinned_workspaces.dedup();
+    settings.pinned_workspaces.truncate(MAX_RECENT_ITEMS);
+
+    settings
         .recent_files
         .retain(|file| !file.trim().is_empty() && is_markdown_path(Path::new(file)));
     settings.recent_files.dedup();
     settings.recent_files.truncate(MAX_RECENT_ITEMS);
+
+    settings
+        .pinned_files
+        .retain(|file| !file.trim().is_empty() && is_markdown_path(Path::new(file)));
+    settings.pinned_files.dedup();
+    settings.pinned_files.truncate(MAX_RECENT_ITEMS);
 
     if settings
         .last_workspace
@@ -1593,6 +2010,130 @@ fn normalize_ai_request(mut request: AiGenerateRequest) -> Result<AiGenerateRequ
 
     request.temperature = request.temperature.clamp(0.0, 2.0);
     Ok(request)
+}
+
+enum AiStreamParser {
+    OpenAiChat,
+    OpenAiResponses,
+    Anthropic,
+    Gemini,
+}
+
+struct AiStreamSpec {
+    provider: String,
+    model: String,
+    url: String,
+    headers: Vec<(String, String)>,
+    body: String,
+    parser: AiStreamParser,
+}
+
+fn build_ai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {
+    match request.kind.as_str() {
+        "openai" => {
+            let base_url = env_or_default(
+                "OPENAI_BASE_URL",
+                "https://api.aicodemirror.com/api/codex/backend-api/codex/v1",
+            );
+            let api_key = required_env("OPENAI_API_KEY")?;
+            let model = request_model_or_env(request, "OPENAI_MODEL", "gpt-5.5");
+            let use_responses = openai_prefers_responses_api(&model);
+            let url = if use_responses {
+                format!("{}/responses", base_url.trim_end_matches('/'))
+            } else {
+                format!("{}/chat/completions", base_url.trim_end_matches('/'))
+            };
+            let mut body = build_openai_body(request, &model, use_responses);
+            body["stream"] = serde_json::json!(true);
+
+            Ok(AiStreamSpec {
+                provider: "openai".to_string(),
+                model,
+                url,
+                headers: vec![
+                    ("Content-Type".to_string(), "application/json".to_string()),
+                    ("Authorization".to_string(), format!("Bearer {api_key}")),
+                ],
+                body: serde_json::to_string(&body).map_err(|error| error.to_string())?,
+                parser: if use_responses {
+                    AiStreamParser::OpenAiResponses
+                } else {
+                    AiStreamParser::OpenAiChat
+                },
+            })
+        }
+        "anthropic" => {
+            let base_url = env_or_default(
+                "ANTHROPIC_BASE_URL",
+                "https://api.aicodemirror.com/api/claudecode",
+            );
+            let api_key = required_env("ANTHROPIC_API_KEY")?;
+            let model = request_model_or_env(request, "ANTHROPIC_MODEL", "claude-opus-4-7");
+            let body = serde_json::json!({
+                "model": model,
+                "system": build_ai_system_prompt(),
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": build_ai_user_prompt(request)
+                    }
+                ],
+                "max_tokens": 1024,
+                "temperature": request.temperature,
+                "stream": true
+            });
+
+            Ok(AiStreamSpec {
+                provider: "anthropic".to_string(),
+                model,
+                url: format!("{}/messages", base_url.trim_end_matches('/')),
+                headers: vec![
+                    ("Content-Type".to_string(), "application/json".to_string()),
+                    ("x-api-key".to_string(), api_key),
+                    ("anthropic-version".to_string(), "2023-06-01".to_string()),
+                ],
+                body: serde_json::to_string(&body).map_err(|error| error.to_string())?,
+                parser: AiStreamParser::Anthropic,
+            })
+        }
+        "gemini" => {
+            let base_url =
+                env_or_default("GEMINI_BASE_URL", "https://api.aicodemirror.com/api/gemini");
+            let api_key = required_env("GEMINI_API_KEY")?;
+            let model = request_model_or_env(request, "GEMINI_MODEL", "gemini-3.1-pro-preview");
+            let body = serde_json::json!({
+                "systemInstruction": {
+                    "parts": [{ "text": build_ai_system_prompt() }]
+                },
+                "contents": [
+                    {
+                        "parts": [{ "text": build_ai_user_prompt(request) }]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": request.temperature,
+                    "maxOutputTokens": 1024
+                }
+            });
+
+            Ok(AiStreamSpec {
+                provider: "gemini".to_string(),
+                model: model.clone(),
+                url: format!(
+                    "{}/v1beta/models/{}:streamGenerateContent?alt=sse",
+                    base_url.trim_end_matches('/'),
+                    model
+                ),
+                headers: vec![
+                    ("Content-Type".to_string(), "application/json".to_string()),
+                    ("x-goog-api-key".to_string(), api_key),
+                ],
+                body: serde_json::to_string(&body).map_err(|error| error.to_string())?,
+                parser: AiStreamParser::Gemini,
+            })
+        }
+        _ => Err("Unsupported AI provider kind".to_string()),
+    }
 }
 
 async fn request_openai_compatible(request: AiGenerateRequest) -> Result<AiGenerateResult, String> {
@@ -1844,6 +2385,232 @@ fn post_json_with_curl(
     Err(format!("AI 请求失败：{message}"))
 }
 
+fn stream_ai_with_curl(
+    app: tauri::AppHandle,
+    request_id: String,
+    spec: AiStreamSpec,
+    cancelled: Arc<AtomicBool>,
+) -> Result<(), String> {
+    let mut command = Command::new("curl");
+    command
+        .arg("-sS")
+        .arg("--fail-with-body")
+        .arg("--connect-timeout")
+        .arg("15")
+        .arg("--max-time")
+        .arg("120")
+        .arg("--http1.1")
+        .arg("-N")
+        .arg("-X")
+        .arg("POST")
+        .arg(&spec.url);
+
+    for (name, value) in &spec.headers {
+        command.arg("-H").arg(format!("{name}: {value}"));
+    }
+
+    let mut child = command
+        .arg("--data-binary")
+        .arg("@-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("无法启动 curl：{error}"))?;
+
+    let pid = child.id();
+    update_ai_stream_pid(&app, &request_id, pid);
+
+    if cancelled.load(Ordering::SeqCst) {
+        let _ = child.kill();
+        return Ok(());
+    }
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(spec.body.as_bytes())
+            .map_err(|error| format!("写入 AI 请求失败：{error}"))?;
+    }
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "无法读取 AI 流式响应。".to_string())?;
+    let mut reader = BufReader::new(stdout);
+    let mut line = String::new();
+
+    let _ = app.emit(
+        "inkstack://ai-stream-start",
+        AiStreamStartPayload {
+            request_id: request_id.clone(),
+            provider: spec.provider.clone(),
+            model: spec.model.clone(),
+        },
+    );
+
+    loop {
+        if cancelled.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            break;
+        }
+
+        line.clear();
+        let bytes = reader
+            .read_line(&mut line)
+            .map_err(|error| format!("读取 AI 流式响应失败：{error}"))?;
+        if bytes == 0 {
+            break;
+        }
+
+        let Some(data) = sse_data_payload(&line) else {
+            continue;
+        };
+        if data == "[DONE]" {
+            break;
+        }
+
+        let parsed = serde_json::from_str::<serde_json::Value>(&data)
+            .map_err(|error| format!("解析 AI 流式响应失败：{error}"))?;
+        if let Some(error) = parsed.get("error") {
+            return Err(format!("AI 请求失败：{}", stream_error_message(error)));
+        }
+
+        if let Some(delta) = extract_stream_delta(&parsed, &spec.parser) {
+            let _ = app.emit(
+                "inkstack://ai-stream-delta",
+                AiStreamDeltaPayload {
+                    request_id: request_id.clone(),
+                    text: delta,
+                },
+            );
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("AI 请求等待失败：{error}"))?;
+    if cancelled.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+
+    if output.status.success() {
+        let _ = app.emit(
+            "inkstack://ai-stream-end",
+            AiStreamEndPayload {
+                request_id,
+                model: Some(spec.model),
+            },
+        );
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let error_message = if stderr.trim().is_empty() {
+        "stream closed with an HTTP error".to_string()
+    } else {
+        stderr.trim().to_string()
+    };
+    Err(format!("AI 请求失败：{}", error_message))
+}
+
+fn sse_data_payload(line: &str) -> Option<String> {
+    line.trim_end()
+        .strip_prefix("data:")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn extract_stream_delta(data: &serde_json::Value, parser: &AiStreamParser) -> Option<String> {
+    let text = match parser {
+        AiStreamParser::OpenAiChat => data
+            .get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("delta"))
+            .and_then(|delta| delta.get("content"))
+            .and_then(|content| content.as_str()),
+        AiStreamParser::OpenAiResponses => extract_openai_responses_stream_delta(data),
+        AiStreamParser::Anthropic => data
+            .get("delta")
+            .and_then(|delta| delta.get("text"))
+            .and_then(|text| text.as_str()),
+        AiStreamParser::Gemini => {
+            let delta = data
+                .get("candidates")
+                .and_then(|candidates| candidates.get(0))
+                .and_then(|candidate| candidate.get("content"))
+                .and_then(|content| content.get("parts"))
+                .and_then(|parts| parts.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|part| part.get("text").and_then(|text| text.as_str()))
+                .collect::<String>();
+            return if delta.is_empty() { None } else { Some(delta) };
+        }
+    }?;
+
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
+fn extract_openai_responses_stream_delta(data: &serde_json::Value) -> Option<&str> {
+    data.get("delta")
+        .and_then(|delta| delta.as_str())
+        .or_else(|| data.get("text").and_then(|text| text.as_str()))
+        .or_else(|| {
+            data.get("item")
+                .and_then(|item| item.get("content"))
+                .and_then(|content| content.get(0))
+                .and_then(|part| part.get("text"))
+                .and_then(|text| text.as_str())
+        })
+}
+
+fn stream_error_message(error: &serde_json::Value) -> String {
+    error
+        .get("message")
+        .and_then(|message| message.as_str())
+        .unwrap_or("AI 请求失败")
+        .to_string()
+}
+
+fn update_ai_stream_pid(app: &tauri::AppHandle, request_id: &str, pid: u32) {
+    if let Ok(mut streams) = app.state::<AppState>().ai_streams.lock() {
+        if let Some(control) = streams.get_mut(request_id) {
+            control.pid = Some(pid);
+        }
+    }
+}
+
+fn remove_ai_stream_control(app: &tauri::AppHandle, request_id: &str) {
+    if let Ok(mut streams) = app.state::<AppState>().ai_streams.lock() {
+        streams.remove(request_id);
+    }
+}
+
+fn terminate_process(pid: Option<u32>) {
+    let Some(pid) = pid else {
+        return;
+    };
+
+    #[cfg(target_family = "unix")]
+    {
+        let _ = Command::new("kill")
+            .arg("-TERM")
+            .arg(pid.to_string())
+            .status();
+    }
+
+    #[cfg(target_family = "windows")]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status();
+    }
+}
+
 fn build_ai_messages(request: &AiGenerateRequest) -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({
@@ -1974,7 +2741,7 @@ fn request_model_or_env(
 }
 
 fn build_ai_user_prompt(request: &AiGenerateRequest) -> String {
-    const MAX_CONTEXT_CHARS: usize = 5000;
+    const MAX_CONTEXT_CHARS: usize = 30000;
     let context = request.context.as_deref().unwrap_or("").trim();
     let trimmed_context = context.chars().take(MAX_CONTEXT_CHARS).collect::<String>();
     let mode = request.mode.as_deref().unwrap_or("chat");

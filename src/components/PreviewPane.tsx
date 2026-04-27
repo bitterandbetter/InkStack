@@ -1,6 +1,7 @@
 import Markdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.css'; // Always dark for code blocks for better contrast
+import type { CSSProperties } from 'react';
 import { FileCode2 } from 'lucide-react';
 import { useStore } from '../store';
 import { cn } from '../lib/utils';
@@ -23,12 +24,21 @@ import { useDebouncedValue } from '../features/preview/useDebouncedValue';
 const PREVIEW_DEBOUNCE_MS = 180;
 
 export function PreviewPane() {
-  const { activeFileContent, viewMode, activeFile, locale } = useStore();
+  const { activeFileContent, viewMode, activeFile, locale, readingSettings } = useStore();
   const markdownContent = stripFrontMatter(activeFileContent);
   const headings = buildHeadingIndex(markdownContent);
   const preparedMarkdown = injectTocPlaceholder(markdownContent);
   const displayContent = preparedMarkdown || (locale === 'zh' ? '*这是一个空的文档。*' : '*This document is empty.*');
   const debouncedContent = useDebouncedValue(displayContent, PREVIEW_DEBOUNCE_MS);
+  const previewStyle = {
+    '--inkstack-reading-width': `${readingSettings.width}px`,
+    '--inkstack-reading-font-size': `${readingSettings.fontSize}px`,
+    '--inkstack-reading-line-height': String(readingSettings.lineHeight),
+    '--inkstack-reading-paragraph-spacing': `${readingSettings.paragraphSpacing}em`,
+    '--inkstack-reading-font-family': readingSettings.font === 'serif'
+      ? 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'
+      : 'var(--font-sans)'
+  } as CSSProperties;
 
   if (!activeFile && viewMode === 'read') {
     return (
@@ -59,12 +69,12 @@ export function PreviewPane() {
   }
 
   return (
-    <div className={cn(
-      "h-full overflow-y-auto px-8 py-10 lg:px-12 text-[15px] leading-relaxed",
+    <div style={previewStyle} className={cn(
+      "h-full overflow-y-auto px-8 py-10 lg:px-12",
       viewMode === 'edit' ? 'hidden' : 'flex-1',
-      viewMode === 'read' ? 'max-w-4xl mx-auto border-x border-border-subtle bg-bg-base shadow-sm' : 'border-l border-border-subtle bg-bg-base'
+      viewMode === 'read' ? 'mx-auto border-x border-border-subtle bg-bg-base shadow-sm' : 'border-l border-border-subtle bg-bg-base'
     )}>
-      <div className="prose dark:prose-invert prose-p:text-text-primary prose-headings:text-text-primary max-w-none prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0 prose-img:rounded-md prose-img:border prose-img:border-border-subtle prose-a:text-accent prose-headings:scroll-mt-20">
+      <div className="inkstack-reading-surface prose dark:prose-invert prose-p:text-text-primary prose-headings:text-text-primary max-w-none prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0 prose-img:rounded-md prose-img:border prose-img:border-border-subtle prose-a:text-accent prose-headings:scroll-mt-20">
         <Markdown
           remarkPlugins={remarkPlugins}
           rehypePlugins={rehypePlugins}
