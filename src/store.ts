@@ -5,6 +5,11 @@ import {
   loadEditorAiPrompts,
   saveEditorAiPrompts
 } from './lib/aiPrompts';
+import {
+  AiContextPreferences,
+  loadAiContextPreferences,
+  saveAiContextPreferences
+} from './lib/aiContextPrefs';
 import { FileMetadata, FileNode } from './lib/fs';
 import {
   applyThemeState,
@@ -14,11 +19,25 @@ import {
   ThemeState
 } from './lib/themes';
 
-type ViewMode = 'split' | 'edit' | 'read';
+type ViewMode = 'split' | 'edit' | 'read' | 'code';
 type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
+export type SaveHistorySource = 'manual' | 'auto' | 'save-as';
+export type SaveFailureType = 'none' | 'conflict' | 'permission' | 'missing' | 'readonly' | 'cancelled' | 'unsupported' | 'unknown';
 export type UnsavedChangeChoice = 'save' | 'discard' | 'cancel';
 export type AiContextChoice = 'confirm' | 'cancel';
-export type ReadingFont = 'sans' | 'serif';
+export type ReadingFont = 'theme' | 'sans' | 'serif' | 'mono' | `custom:${string}`;
+export type ImageInsertMode = 'assets' | 'embed';
+export type MarkdownToolbarRow = 'common' | 'more';
+
+export interface MarkdownToolbarItemPrefs {
+  visible: boolean;
+  row: MarkdownToolbarRow;
+}
+
+export interface MarkdownToolbarPrefs {
+  order: string[];
+  items: Record<string, MarkdownToolbarItemPrefs>;
+}
 
 export interface ReadingSettings {
   width: number;
@@ -28,10 +47,23 @@ export interface ReadingSettings {
   font: ReadingFont;
 }
 
+export interface EditorSettings {
+  width: number;
+  fontSize: number;
+  lineHeight: number;
+}
+
 export interface AiContextItem {
   label: string;
   detail: string;
   content: string;
+  editable?: boolean;
+  removable?: boolean;
+}
+
+export interface AiContextResult {
+  choice: AiContextChoice;
+  items: AiContextItem[];
 }
 
 interface EditorSelection {
@@ -49,6 +81,22 @@ export interface DocumentTab {
   saveState: SaveState;
   saveMessage: string;
   currentEditorLine: number | null;
+}
+
+export interface SaveHistoryEntry {
+  id: string;
+  filePath: string;
+  fileName: string;
+  timestamp: number;
+  source: SaveHistorySource;
+  success: boolean;
+  failureType: SaveFailureType;
+  message: string;
+}
+
+interface AutoSavePreferences {
+  defaultEnabled: boolean;
+  workspaceOverrides: Record<string, boolean>;
 }
 
 interface AppState {
@@ -88,7 +136,7 @@ interface AppState {
     title: string;
     message: string;
     items: AiContextItem[];
-    resolve: (choice: AiContextChoice) => void;
+    resolve: (result: AiContextResult) => void;
   } | null;
   
   setRootPath: (path: string | null) => void;
@@ -115,8 +163,8 @@ interface AppState {
   closeSaveConflict: () => void;
   requestUnsavedChangeChoice: (title: string, message: string) => Promise<UnsavedChangeChoice>;
   resolveUnsavedChangeChoice: (choice: UnsavedChangeChoice) => void;
-  requestAiContextChoice: (title: string, message: string, items: AiContextItem[]) => Promise<AiContextChoice>;
-  resolveAiContextChoice: (choice: AiContextChoice) => void;
+  requestAiContextChoice: (title: string, message: string, items: AiContextItem[]) => Promise<AiContextResult>;
+  resolveAiContextChoice: (choice: AiContextChoice, items?: AiContextItem[]) => void;
   
   // UI State
   viewMode: ViewMode;
@@ -133,15 +181,31 @@ interface AppState {
   setAiConfig: (config: AiConfig) => void;
   editorAiPrompts: EditorAiPrompts;
   setEditorAiPrompts: (prompts: EditorAiPrompts) => void;
+  aiContextPreferences: AiContextPreferences;
+  setAiContextPreferences: (preferences: AiContextPreferences) => void;
   autoSaveEnabled: boolean;
   setAutoSaveEnabled: (enabled: boolean) => void;
+  resetWorkspaceAutoSavePreference: () => void;
+  saveHistory: SaveHistoryEntry[];
+  recordSaveHistory: (entry: Omit<SaveHistoryEntry, 'id' | 'timestamp' | 'failureType'> & { timestamp?: number; failureType?: SaveFailureType }) => void;
+  clearSaveHistory: () => void;
   themeState: ThemeState;
   setThemeState: (state: ThemeState) => void;
   setActiveThemeId: (themeId: string, importedThemeCss?: string) => void;
+  setThemeMode: (mode: 'light' | 'dark') => void;
   setImportedThemes: (themes: ThemeOption[]) => void;
   readingSettings: ReadingSettings;
+  editorSettings: EditorSettings;
+  imageInsertMode: ImageInsertMode;
+  setImageInsertMode: (mode: ImageInsertMode) => void;
   setReadingSettings: (settings: Partial<ReadingSettings>) => void;
+  setEditorSettings: (settings: Partial<EditorSettings>) => void;
   resetReadingSettings: () => void;
+  resetEditorSettings: () => void;
+  splitScrollSync: boolean;
+  setSplitScrollSync: (enabled: boolean) => void;
+  markdownToolbarPrefs: MarkdownToolbarPrefs;
+  setMarkdownToolbarPrefs: (prefs: MarkdownToolbarPrefs) => void;
   isDarkMode: boolean;
   toggleThemeMode: () => void;
 }
@@ -149,15 +213,78 @@ interface AppState {
 const initialThemeState = loadThemeState();
 applyThemeState(initialThemeState);
 const READING_SETTINGS_STORAGE_KEY = 'inkstack.reading.settings.v1';
+const EDITOR_SETTINGS_STORAGE_KEY = 'inkstack.editor.settings.v1';
 const DEFAULT_READING_SETTINGS: ReadingSettings = {
   width: 896,
   fontSize: 15,
   lineHeight: 1.75,
   paragraphSpacing: 1,
-  font: 'sans'
+  font: 'theme'
 };
 const initialReadingSettings = loadReadingSettings();
+const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
+  width: 980,
+  fontSize: 14,
+  lineHeight: 1.7
+};
+const initialEditorSettings = loadEditorSettings();
 const AUTO_SAVE_STORAGE_KEY = 'inkstack.autosave.enabled.v1';
+const AUTO_SAVE_PREFS_STORAGE_KEY = 'inkstack.autosave.preferences.v1';
+const SAVE_HISTORY_STORAGE_KEY = 'inkstack.save.history.v1';
+const IMAGE_INSERT_MODE_STORAGE_KEY = 'inkstack.image.insert.mode.v1';
+const SPLIT_SCROLL_SYNC_STORAGE_KEY = 'inkstack.split.scroll.sync.v1';
+const MARKDOWN_TOOLBAR_PREFS_STORAGE_KEY = 'inkstack.markdown.toolbar.prefs.v1';
+const MAX_SAVE_HISTORY = 40;
+const initialAutoSavePreferences = loadAutoSavePreferences();
+const initialImageInsertMode = loadImageInsertMode();
+const initialSplitScrollSync = loadSplitScrollSync();
+const DEFAULT_MARKDOWN_TOOLBAR_PREFS: MarkdownToolbarPrefs = {
+  order: [
+    'heading1',
+    'heading2',
+    'bold',
+    'italic',
+    'bulletList',
+    'orderedList',
+    'taskList',
+    'quote',
+    'link',
+    'image',
+    'imageMode',
+    'codeBlock',
+    'inlineCode',
+    'attachment',
+    'table',
+    'formatTable',
+    'insertTableRow',
+    'insertTableColumn',
+    'divider',
+    'heading3'
+  ],
+  items: {
+    heading1: { visible: true, row: 'common' },
+    heading2: { visible: true, row: 'common' },
+    bold: { visible: true, row: 'common' },
+    italic: { visible: true, row: 'common' },
+    bulletList: { visible: true, row: 'common' },
+    orderedList: { visible: true, row: 'common' },
+    taskList: { visible: true, row: 'common' },
+    quote: { visible: true, row: 'common' },
+    link: { visible: true, row: 'common' },
+    image: { visible: true, row: 'common' },
+    imageMode: { visible: true, row: 'common' },
+    codeBlock: { visible: true, row: 'more' },
+    inlineCode: { visible: true, row: 'more' },
+    attachment: { visible: true, row: 'more' },
+    table: { visible: true, row: 'more' },
+    formatTable: { visible: true, row: 'more' },
+    insertTableRow: { visible: true, row: 'more' },
+    insertTableColumn: { visible: true, row: 'more' },
+    divider: { visible: true, row: 'more' },
+    heading3: { visible: true, row: 'more' }
+  }
+};
+const initialMarkdownToolbarPrefs = loadMarkdownToolbarPrefs();
 
 export const useStore = create<AppState>((set) => ({
   locale: 'zh',
@@ -184,7 +311,10 @@ export const useStore = create<AppState>((set) => ({
   saveConflict: null,
   aiContextPrompt: null,
   
-  setRootPath: (path) => set({ rootPath: path }),
+  setRootPath: (path) => set({
+    rootPath: path,
+    autoSaveEnabled: resolveAutoSaveEnabled(path, loadAutoSavePreferences())
+  }),
   setFileTree: (t) => set({ fileTree: t }),
   setDirectoryChildren: (path, children) => set((state) => ({
     fileTree: updateDirectoryChildren(state.fileTree, path, children)
@@ -513,8 +643,11 @@ export const useStore = create<AppState>((set) => ({
   requestAiContextChoice: (title, message, items) => new Promise((resolve) => {
     set({ aiContextPrompt: { title, message, items, resolve } });
   }),
-  resolveAiContextChoice: (choice) => set((state) => {
-    state.aiContextPrompt?.resolve(choice);
+  resolveAiContextChoice: (choice, items) => set((state) => {
+    state.aiContextPrompt?.resolve({
+      choice,
+      items: items ?? state.aiContextPrompt.items
+    });
     return { aiContextPrompt: null };
   }),
   
@@ -540,17 +673,56 @@ export const useStore = create<AppState>((set) => ({
     saveEditorAiPrompts(prompts);
     set({ editorAiPrompts: prompts });
   },
-  autoSaveEnabled: loadAutoSaveEnabled(),
-  setAutoSaveEnabled: (enabled) => {
-    localStorage.setItem(AUTO_SAVE_STORAGE_KEY, JSON.stringify(enabled));
-    set({ autoSaveEnabled: enabled });
+  aiContextPreferences: loadAiContextPreferences(),
+  setAiContextPreferences: (preferences) => {
+    saveAiContextPreferences(preferences);
+    set({ aiContextPreferences: preferences });
+  },
+  autoSaveEnabled: resolveAutoSaveEnabled(null, initialAutoSavePreferences),
+  setAutoSaveEnabled: (enabled) => set((state) => {
+    const preferences = loadAutoSavePreferences();
+    if (state.rootPath) {
+      preferences.workspaceOverrides[state.rootPath] = enabled;
+    } else {
+      preferences.defaultEnabled = enabled;
+    }
+    saveAutoSavePreferences(preferences);
+    return { autoSaveEnabled: enabled };
+  }),
+  resetWorkspaceAutoSavePreference: () => set((state) => {
+    if (!state.rootPath) {
+      const preferences = loadAutoSavePreferences();
+      preferences.defaultEnabled = false;
+      saveAutoSavePreferences(preferences);
+      return { autoSaveEnabled: false };
+    }
+    const preferences = loadAutoSavePreferences();
+    delete preferences.workspaceOverrides[state.rootPath];
+    saveAutoSavePreferences(preferences);
+    return { autoSaveEnabled: resolveAutoSaveEnabled(state.rootPath, preferences) };
+  }),
+  saveHistory: loadSaveHistory(),
+  recordSaveHistory: (entry) => set((state) => {
+    const nextEntry: SaveHistoryEntry = {
+      id: `${Date.now()}:${Math.random().toString(36).slice(2)}`,
+      ...entry,
+      failureType: entry.failureType ?? (entry.success ? 'none' : 'unknown'),
+      timestamp: entry.timestamp ?? Date.now()
+    };
+    const next = [nextEntry, ...state.saveHistory].slice(0, MAX_SAVE_HISTORY);
+    saveSaveHistory(next);
+    return { saveHistory: next };
+  }),
+  clearSaveHistory: () => {
+    saveSaveHistory([]);
+    set({ saveHistory: [] });
   },
 
   themeState: initialThemeState,
   setThemeState: (themeState) => {
     applyThemeState(themeState);
     saveThemeState(themeState);
-    set({ themeState, isDarkMode: isDarkThemeId(themeState.activeThemeId) });
+    set({ themeState, isDarkMode: themeState.colorMode === 'dark' });
   },
   setActiveThemeId: (themeId, importedThemeCss = '') => set((state) => {
     const next = {
@@ -560,7 +732,16 @@ export const useStore = create<AppState>((set) => ({
     };
     applyThemeState(next);
     saveThemeState(next);
-    return { themeState: next, isDarkMode: isDarkThemeId(themeId) };
+    return { themeState: next, isDarkMode: next.colorMode === 'dark' };
+  }),
+  setThemeMode: (mode) => set((state) => {
+    const next = {
+      ...state.themeState,
+      colorMode: mode
+    };
+    applyThemeState(next);
+    saveThemeState(next);
+    return { themeState: next, isDarkMode: mode === 'dark' };
   }),
   setImportedThemes: (themes) => set((state) => {
     const next = {
@@ -569,29 +750,54 @@ export const useStore = create<AppState>((set) => ({
     };
     applyThemeState(next);
     saveThemeState(next);
-    return { themeState: next, isDarkMode: isDarkThemeId(next.activeThemeId) };
+    return { themeState: next, isDarkMode: next.colorMode === 'dark' };
   }),
   readingSettings: initialReadingSettings,
+  editorSettings: initialEditorSettings,
+  imageInsertMode: initialImageInsertMode,
+  setImageInsertMode: (mode) => set(() => {
+    saveImageInsertMode(mode);
+    return { imageInsertMode: mode };
+  }),
   setReadingSettings: (settings) => set((state) => {
     const next = normalizeReadingSettings({ ...state.readingSettings, ...settings });
     saveReadingSettings(next);
     return { readingSettings: next };
   }),
+  setEditorSettings: (settings) => set((state) => {
+    const next = normalizeEditorSettings({ ...state.editorSettings, ...settings });
+    saveEditorSettings(next);
+    return { editorSettings: next };
+  }),
   resetReadingSettings: () => {
     saveReadingSettings(DEFAULT_READING_SETTINGS);
     set({ readingSettings: DEFAULT_READING_SETTINGS });
   },
-  isDarkMode: isDarkThemeId(initialThemeState.activeThemeId),
+  resetEditorSettings: () => {
+    saveEditorSettings(DEFAULT_EDITOR_SETTINGS);
+    set({ editorSettings: DEFAULT_EDITOR_SETTINGS });
+  },
+  splitScrollSync: initialSplitScrollSync,
+  setSplitScrollSync: (enabled) => set(() => {
+    saveSplitScrollSync(enabled);
+    return { splitScrollSync: enabled };
+  }),
+  markdownToolbarPrefs: initialMarkdownToolbarPrefs,
+  setMarkdownToolbarPrefs: (prefs) => set(() => {
+    const next = normalizeMarkdownToolbarPrefs(prefs);
+    saveMarkdownToolbarPrefs(next);
+    return { markdownToolbarPrefs: next };
+  }),
+  isDarkMode: initialThemeState.colorMode === 'dark',
   toggleThemeMode: () => set((state) => {
-    const nextId = isDarkThemeId(state.themeState.activeThemeId) ? 'light' : 'dark';
+    const nextMode = state.themeState.colorMode === 'dark' ? 'light' : 'dark';
     const next = {
       ...state.themeState,
-      activeThemeId: nextId,
-      importedThemeCss: ''
+      colorMode: nextMode
     };
     applyThemeState(next);
     saveThemeState(next);
-    return { themeState: next, isDarkMode: isDarkThemeId(nextId) };
+    return { themeState: next, isDarkMode: nextMode === 'dark' };
   }),
 }));
 
@@ -715,10 +921,6 @@ function replacePathPrefix(path: string, oldPrefix: string, newPrefix: string) {
   return `${normalizedNew}${normalizedPath.slice(normalizedOld.length)}`;
 }
 
-function isDarkThemeId(themeId: string) {
-  return themeId === 'dark' || themeId === 'code-docs';
-}
-
 function loadReadingSettings(): ReadingSettings {
   try {
     const saved = localStorage.getItem(READING_SETTINGS_STORAGE_KEY);
@@ -733,13 +935,104 @@ function saveReadingSettings(settings: ReadingSettings) {
   localStorage.setItem(READING_SETTINGS_STORAGE_KEY, JSON.stringify(normalizeReadingSettings(settings)));
 }
 
+function loadEditorSettings(): EditorSettings {
+  try {
+    const saved = localStorage.getItem(EDITOR_SETTINGS_STORAGE_KEY);
+    if (!saved) return DEFAULT_EDITOR_SETTINGS;
+    return normalizeEditorSettings(JSON.parse(saved));
+  } catch {
+    return DEFAULT_EDITOR_SETTINGS;
+  }
+}
+
+function saveEditorSettings(settings: EditorSettings) {
+  localStorage.setItem(EDITOR_SETTINGS_STORAGE_KEY, JSON.stringify(normalizeEditorSettings(settings)));
+}
+
+function loadImageInsertMode(): ImageInsertMode {
+  const value = localStorage.getItem(IMAGE_INSERT_MODE_STORAGE_KEY);
+  return value === 'embed' ? 'embed' : 'assets';
+}
+
+function saveImageInsertMode(mode: ImageInsertMode) {
+  localStorage.setItem(IMAGE_INSERT_MODE_STORAGE_KEY, mode);
+}
+
+function loadSplitScrollSync() {
+  try {
+    const saved = localStorage.getItem(SPLIT_SCROLL_SYNC_STORAGE_KEY);
+    if (saved === null) return false;
+    return saved === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function saveSplitScrollSync(enabled: boolean) {
+  localStorage.setItem(SPLIT_SCROLL_SYNC_STORAGE_KEY, String(enabled));
+}
+
+function loadMarkdownToolbarPrefs(): MarkdownToolbarPrefs {
+  try {
+    const saved = localStorage.getItem(MARKDOWN_TOOLBAR_PREFS_STORAGE_KEY);
+    if (!saved) return DEFAULT_MARKDOWN_TOOLBAR_PREFS;
+    return normalizeMarkdownToolbarPrefs(JSON.parse(saved));
+  } catch {
+    return DEFAULT_MARKDOWN_TOOLBAR_PREFS;
+  }
+}
+
+function saveMarkdownToolbarPrefs(prefs: MarkdownToolbarPrefs) {
+  localStorage.setItem(MARKDOWN_TOOLBAR_PREFS_STORAGE_KEY, JSON.stringify(normalizeMarkdownToolbarPrefs(prefs)));
+}
+
+function normalizeMarkdownToolbarPrefs(value: Partial<MarkdownToolbarPrefs>): MarkdownToolbarPrefs {
+  const validIds = Object.keys(DEFAULT_MARKDOWN_TOOLBAR_PREFS.items);
+  const requestedOrder = Array.isArray(value.order) ? value.order.filter((id) => typeof id === 'string') : [];
+  const deduped = Array.from(new Set(requestedOrder));
+  const order = [
+    ...deduped.filter((id) => validIds.includes(id)),
+    ...validIds.filter((id) => !deduped.includes(id))
+  ];
+  const rawItems = value.items && typeof value.items === 'object' ? value.items : {};
+  const items = Object.fromEntries(
+    validIds.map((id) => {
+      const next = (rawItems as Record<string, Partial<MarkdownToolbarItemPrefs> | undefined>)[id];
+      return [
+        id,
+        {
+          visible: typeof next?.visible === 'boolean' ? next.visible : DEFAULT_MARKDOWN_TOOLBAR_PREFS.items[id].visible,
+          row: next?.row === 'common' || next?.row === 'more' ? next.row : DEFAULT_MARKDOWN_TOOLBAR_PREFS.items[id].row
+        } satisfies MarkdownToolbarItemPrefs
+      ];
+    })
+  );
+  return { order, items };
+}
+
 function normalizeReadingSettings(value: Partial<ReadingSettings>): ReadingSettings {
+  const font = typeof value.font === 'string' ? value.font.trim() : 'theme';
+  const normalizedFont = font.startsWith('custom:') && font.slice(7).trim()
+    ? `custom:${font.slice(7).trim()}`
+    : (
+      font === 'sans' || font === 'serif' || font === 'mono' || font === 'theme'
+        ? font
+        : 'theme'
+    );
   return {
     width: clampNumber(value.width, 680, 1280, DEFAULT_READING_SETTINGS.width),
     fontSize: clampNumber(value.fontSize, 13, 20, DEFAULT_READING_SETTINGS.fontSize),
     lineHeight: clampNumber(value.lineHeight, 1.35, 2.2, DEFAULT_READING_SETTINGS.lineHeight),
     paragraphSpacing: clampNumber(value.paragraphSpacing, 0.6, 1.8, DEFAULT_READING_SETTINGS.paragraphSpacing),
-    font: value.font === 'serif' ? 'serif' : 'sans'
+    font: normalizedFont
+  };
+}
+
+function normalizeEditorSettings(value: Partial<EditorSettings>): EditorSettings {
+  return {
+    width: clampNumber(value.width, 720, 1560, DEFAULT_EDITOR_SETTINGS.width),
+    fontSize: clampNumber(value.fontSize, 12, 22, DEFAULT_EDITOR_SETTINGS.fontSize),
+    lineHeight: clampNumber(value.lineHeight, 1.25, 2.1, DEFAULT_EDITOR_SETTINGS.lineHeight)
   };
 }
 
@@ -755,4 +1048,79 @@ function loadAutoSaveEnabled() {
   } catch {
     return false;
   }
+}
+
+function loadAutoSavePreferences(): AutoSavePreferences {
+  try {
+    const saved = localStorage.getItem(AUTO_SAVE_PREFS_STORAGE_KEY);
+    if (!saved) {
+      return { defaultEnabled: loadAutoSaveEnabled(), workspaceOverrides: {} };
+    }
+    const parsed = JSON.parse(saved) as Partial<AutoSavePreferences>;
+    const overrides = parsed.workspaceOverrides && typeof parsed.workspaceOverrides === 'object'
+      ? Object.fromEntries(
+        Object.entries(parsed.workspaceOverrides)
+          .filter(([path, value]) => Boolean(path) && typeof value === 'boolean')
+      )
+      : {};
+    return {
+      defaultEnabled: typeof parsed.defaultEnabled === 'boolean' ? parsed.defaultEnabled : loadAutoSaveEnabled(),
+      workspaceOverrides: overrides
+    };
+  } catch {
+    return { defaultEnabled: false, workspaceOverrides: {} };
+  }
+}
+
+function saveAutoSavePreferences(preferences: AutoSavePreferences) {
+  localStorage.setItem(AUTO_SAVE_PREFS_STORAGE_KEY, JSON.stringify(preferences));
+  localStorage.setItem(AUTO_SAVE_STORAGE_KEY, JSON.stringify(preferences.defaultEnabled));
+}
+
+function resolveAutoSaveEnabled(rootPath: string | null, preferences: AutoSavePreferences) {
+  if (rootPath && Object.prototype.hasOwnProperty.call(preferences.workspaceOverrides, rootPath)) {
+    return preferences.workspaceOverrides[rootPath];
+  }
+  return preferences.defaultEnabled;
+}
+
+function loadSaveHistory(): SaveHistoryEntry[] {
+  try {
+    const saved = localStorage.getItem(SAVE_HISTORY_STORAGE_KEY);
+    if (!saved) return [];
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(isSaveHistoryEntry)
+      .map((entry) => ({
+        ...entry,
+        failureType: entry.failureType ?? (entry.success ? 'none' : 'unknown')
+      }))
+      .sort((left, right) => right.timestamp - left.timestamp)
+      .slice(0, MAX_SAVE_HISTORY);
+  } catch {
+    return [];
+  }
+}
+
+function saveSaveHistory(history: SaveHistoryEntry[]) {
+  localStorage.setItem(SAVE_HISTORY_STORAGE_KEY, JSON.stringify(history.slice(0, MAX_SAVE_HISTORY)));
+}
+
+function isSaveHistoryEntry(value: unknown): value is SaveHistoryEntry {
+  const entry = value as SaveHistoryEntry;
+  return Boolean(
+    entry
+    && typeof entry.id === 'string'
+    && typeof entry.filePath === 'string'
+    && typeof entry.fileName === 'string'
+    && typeof entry.timestamp === 'number'
+    && (entry.source === 'manual' || entry.source === 'auto' || entry.source === 'save-as')
+    && typeof entry.success === 'boolean'
+    && (
+      typeof entry.failureType === 'undefined'
+      || ['none', 'conflict', 'permission', 'missing', 'readonly', 'cancelled', 'unsupported', 'unknown'].includes(entry.failureType)
+    )
+    && typeof entry.message === 'string'
+  );
 }

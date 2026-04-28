@@ -70,7 +70,7 @@ export function PreviewCodeBlock({ inline, className, children, ...props }: any)
   };
 
   return isBlock ? (
-    <div className="inkstack-code-block relative group mt-4 mb-6">
+    <div className="inkstack-code-block relative group mt-4 mb-6" data-inkstack-preview="code-block">
       <div className="inkstack-code-toolbar flex items-center gap-2 rounded-t-lg border border-b-0 px-3 py-2 font-mono text-[11px]">
         <span className="min-w-0 flex-1 truncate">
           {title || language || 'text'}
@@ -93,7 +93,7 @@ export function PreviewCodeBlock({ inline, className, children, ...props }: any)
           {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
         </button>
       </div>
-      <div className="inkstack-code-surface overflow-hidden rounded-b-lg border">
+      <div className="inkstack-code-surface overflow-hidden rounded-b-lg border" data-inkstack-preview="code-surface">
         <div
           className={cn(
             'grid grid-cols-[3rem_minmax(0,1fr)] overflow-auto',

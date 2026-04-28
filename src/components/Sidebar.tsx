@@ -10,6 +10,7 @@ import {
   renameEntryInWorkspace
 } from "../lib/desktopActions";
 import { cn } from "../lib/utils";
+import { runAppCommand } from "../lib/appCommands";
 
 type ContextMenuState = {
   node: FileNode | null;
@@ -160,6 +161,22 @@ export function Sidebar() {
     <div className="w-60 border-r border-border-subtle bg-bg-panel flex flex-col h-full overflow-hidden shrink-0">
       <div className="p-4 flex items-center justify-between">
         <span className="text-[11px] font-bold text-text-tertiary uppercase tracking-wider">{locale === 'zh' ? '资源管理器' : 'Library'}</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => void runAppCommand('open-workspace')}
+            className="rounded p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+            title={locale === 'zh' ? '打开本地目录' : 'Open Folder'}
+          >
+            <FolderOpen size={14} />
+          </button>
+          <button
+            onClick={() => void runAppCommand('open-file')}
+            className="rounded p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+            title={locale === 'zh' ? '打开文件' : 'Open File'}
+          >
+            <FileText size={14} />
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5" onContextMenu={openRootContextMenu}>
         {rootPath ? (

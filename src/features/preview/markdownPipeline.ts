@@ -21,6 +21,10 @@ const markdownSanitizeSchema = {
       ...(defaultSchema.attributes?.span || []),
       ['className', /^hljs-[\w-]+$/, 'hljs'],
     ],
+    dl: [
+      ...(defaultSchema.attributes?.dl || []),
+      ['className', 'inkstack-definition-list'],
+    ],
   },
 };
 
@@ -39,6 +43,7 @@ export interface HeadingEntry {
   level: number;
   text: string;
   slug: string;
+  line: number;
 }
 
 export function injectTocPlaceholder(content: string) {
@@ -55,7 +60,7 @@ export function buildHeadingIndex(content: string): HeadingEntry[] {
   let fenceMarker: '`' | '~' | null = null;
   let fenceLength = 0;
 
-  for (const line of content.split(/\r?\n/)) {
+  for (const [lineIndex, line] of content.split(/\r?\n/).entries()) {
     const fenceMatch = line.match(/^\s{0,3}(`{3,}|~{3,})/);
     if (fenceMatch) {
       const marker = fenceMatch[1][0] as '`' | '~';
@@ -91,7 +96,8 @@ export function buildHeadingIndex(content: string): HeadingEntry[] {
     headings.push({
       level: heading[1].length,
       text,
-      slug: count === 0 ? baseSlug : `${baseSlug}-${count + 1}`
+      slug: count === 0 ? baseSlug : `${baseSlug}-${count + 1}`,
+      line: lineIndex + 1
     });
   }
 
@@ -134,4 +140,87 @@ export function stripFrontMatter(content: string) {
   }
 
   return content;
+}
+
+export function preparePreviewMarkdown(content: string) {
+  return injectTocPlaceholder(transformDefinitionLists(stripFrontMatter(content)));
+}
+
+export function transformDefinitionLists(content: string) {
+  const lines = content.split(/\r?\n/);
+  const output: string[] = [];
+  let index = 0;
+  let inFence = false;
+  let fenceMarker: '`' | '~' | null = null;
+  let fenceLength = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const fenceMatch = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1][0] as '`' | '~';
+      if (!inFence) {
+        inFence = true;
+        fenceMarker = marker;
+        fenceLength = fenceMatch[1].length;
+      } else if (marker === fenceMarker && fenceMatch[1].length >= fenceLength) {
+        inFence = false;
+        fenceMarker = null;
+        fenceLength = 0;
+      }
+      output.push(line);
+      index += 1;
+      continue;
+    }
+
+    if (!inFence && isDefinitionTermLine(line) && isDefinitionDetailLine(lines[index + 1] ?? '')) {
+      const entries: Array<{ term: string; details: string[] }> = [];
+      while (index < lines.length && isDefinitionTermLine(lines[index]) && isDefinitionDetailLine(lines[index + 1] ?? '')) {
+        const term = lines[index].trim();
+        index += 1;
+        const details: string[] = [];
+        while (index < lines.length && isDefinitionDetailLine(lines[index])) {
+          details.push(lines[index].replace(/^\s*:\s?/, '').trim());
+          index += 1;
+        }
+        entries.push({ term, details });
+        if (lines[index]?.trim() === '') {
+          break;
+        }
+      }
+
+      output.push('<dl class="inkstack-definition-list">');
+      for (const entry of entries) {
+        output.push(`<dt>${escapeHtml(entry.term)}</dt>`);
+        for (const detail of entry.details) {
+          output.push(`<dd>${escapeHtml(detail)}</dd>`);
+        }
+      }
+      output.push('</dl>');
+      continue;
+    }
+
+    output.push(line);
+    index += 1;
+  }
+
+  return output.join('\n');
+}
+
+function isDefinitionTermLine(line: string) {
+  const trimmed = line.trim();
+  return Boolean(trimmed) && !trimmed.startsWith(':') && !trimmed.startsWith('#') && !trimmed.startsWith('|');
+}
+
+function isDefinitionDetailLine(line: string) {
+  return /^\s*:\s+\S/.test(line);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

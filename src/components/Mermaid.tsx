@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Maximize2, Minus, RotateCcw, X, ZoomIn } from 'lucide-react';
 import { saveExportFile } from '../lib/export';
 
@@ -33,6 +33,7 @@ export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
   const [status, setStatus] = useState('');
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const fullscreenSvg = useMemo(() => buildFullscreenSvgMarkup(svg), [svg]);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,7 +107,7 @@ export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
 
   return (
     <>
-      <div className="relative group my-8">
+      <div className="relative group my-8" data-inkstack-preview="mermaid">
         <div 
           ref={containerRef} 
           className="flex justify-center items-center bg-bg-panel border border-border-subtle rounded-lg p-6 min-h-[100px] overflow-auto chart-container"
@@ -151,7 +152,7 @@ export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
 
       {isFullscreen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg-base/95 backdrop-blur p-8">
-          <div className="absolute left-6 top-6 flex items-center gap-2">
+          <div className="absolute left-6 top-6 z-20 flex items-center gap-2">
             <button
               onClick={exportSvg}
               className="rounded-md border border-border-subtle bg-bg-panel px-3 py-2 text-[12px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
@@ -188,12 +189,12 @@ export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
           </div>
           <button 
             onClick={toggleFullscreen}
-            className="absolute top-6 right-6 p-2 bg-bg-panel rounded-full text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            className="absolute top-6 right-6 z-20 rounded-full bg-bg-panel p-2 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
           >
             <X size={24} />
           </button>
           <div 
-            className="h-full w-full select-none overflow-hidden rounded-lg border border-border-subtle bg-bg-panel"
+            className="relative z-0 h-full w-full select-none overflow-hidden rounded-lg border border-border-subtle bg-bg-panel"
             onWheel={(event) => {
               event.preventDefault();
               setScale((value) => clampScale(value + (event.deltaY < 0 ? 0.08 : -0.08)));
@@ -227,7 +228,7 @@ export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
                   transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
                   transformOrigin: 'center center'
                 }}
-                dangerouslySetInnerHTML={{ __html: svg }}
+                dangerouslySetInnerHTML={{ __html: fullscreenSvg }}
               />
             </div>
           </div>
@@ -254,6 +255,60 @@ function MermaidError({ message, chart }: { message: string; chart: string }) {
 
 function clampScale(value: number) {
   return Math.min(4, Math.max(0.25, Number(value.toFixed(2))));
+}
+
+function buildFullscreenSvgMarkup(svg: string) {
+  if (!svg) return svg;
+
+  try {
+    const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const svgElement = parsed.querySelector('svg');
+    if (!svgElement) return svg;
+
+    const viewBox = parseViewBox(svgElement.getAttribute('viewBox'));
+    const width = parseSvgLength(svgElement.getAttribute('width'))
+      ?? parseCssPixelValue(svgElement.style.maxWidth)
+      ?? viewBox?.width
+      ?? 1200;
+    const height = parseSvgLength(svgElement.getAttribute('height'))
+      ?? viewBox?.height
+      ?? 800;
+
+    svgElement.setAttribute('width', `${Math.max(width, 1)}`);
+    svgElement.setAttribute('height', `${Math.max(height, 1)}`);
+    svgElement.style.width = `${Math.max(width, 1)}px`;
+    svgElement.style.height = `${Math.max(height, 1)}px`;
+    svgElement.style.maxWidth = 'none';
+    svgElement.style.maxHeight = 'none';
+    svgElement.style.display = 'block';
+
+    return new XMLSerializer().serializeToString(svgElement);
+  } catch {
+    return svg;
+  }
+}
+
+function parseSvgLength(value: string | null) {
+  if (!value || value.trim().endsWith('%')) return null;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseViewBox(value: string | null) {
+  if (!value) return null;
+  const parts = value.split(/[\s,]+/).map(Number);
+  if (parts.length !== 4) return null;
+  const [, , width, height] = parts;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  return { width, height };
+}
+
+function parseCssPixelValue(value: string | null) {
+  if (!value) return null;
+  const matched = value.match(/([\d.]+)px/i);
+  if (!matched) return null;
+  const parsed = Number.parseFloat(matched[1]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function formatMermaidError(error: unknown) {

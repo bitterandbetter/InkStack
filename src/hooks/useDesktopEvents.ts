@@ -1,19 +1,16 @@
-import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { useEffect } from 'react';
-import { getSettings, openDirectory, openMarkdownFileDialog, takeStartupMarkdownPaths } from '../lib/fs';
+import { useEffect, useRef } from 'react';
+import { getCurrentWindow, isTauriRuntime, listen } from '../lib/tauriRuntime';
+import { getSettings, takeStartupMarkdownPaths } from '../lib/fs';
 import {
   checkActiveFileExternalModification,
-  createUntitledMarkdownFile,
-  ensureCanReplaceWorkspaceDocuments,
   openTextPath,
   openWorkspacePath,
+  requestAppQuit,
   refreshWorkspaceTree,
-  revealActiveFile,
-  saveActiveFile,
-  saveActiveFileAs
+  saveActiveFile
 } from '../lib/desktopActions';
 import { useStore } from '../store';
+import { isAppCommandId, runAppCommand } from '../lib/appCommands';
 
 type DragDropPayload = {
   paths?: string[];
@@ -24,14 +21,13 @@ const IMAGE_EXTENSION_PATTERN = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 
 export function useDesktopEvents() {
   const {
-    toggleSidebar,
-    toggleAiPanel,
     toggleCommandPalette,
     autoSaveEnabled,
     isDirty,
     activeFile,
     activeFileContent
   } = useStore();
+  const autoSaveRetryRef = useRef<number | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -46,39 +42,50 @@ export function useDesktopEvents() {
   }, [toggleCommandPalette]);
 
   useEffect(() => {
+    if (autoSaveRetryRef.current) {
+      window.clearTimeout(autoSaveRetryRef.current);
+      autoSaveRetryRef.current = null;
+    }
     if (!autoSaveEnabled || !isDirty || !activeFile?.path || activeFile.readOnly || !activeFile.isMarkdown) return;
 
     const timeoutId = window.setTimeout(() => {
       const state = useStore.getState();
       if (!state.autoSaveEnabled || !state.isDirty || !state.activeFile?.path || state.activeFile.readOnly || !state.activeFile.isMarkdown) return;
-      void saveActiveFile();
+      const snapshotPath = state.activeFile.path;
+      const snapshotContent = state.activeFileContent;
+      void saveActiveFile('auto').then((saved) => {
+        if (saved) return;
+        autoSaveRetryRef.current = window.setTimeout(() => {
+          const latest = useStore.getState();
+          if (
+            !latest.autoSaveEnabled ||
+            !latest.isDirty ||
+            !latest.activeFile?.path ||
+            latest.activeFile.path !== snapshotPath ||
+            latest.activeFileContent !== snapshotContent ||
+            latest.activeFile.readOnly ||
+            !latest.activeFile.isMarkdown
+          ) {
+            return;
+          }
+          void saveActiveFile('auto');
+        }, 5000);
+      });
     }, 1800);
 
     return () => window.clearTimeout(timeoutId);
   }, [activeFile?.isMarkdown, activeFile?.path, activeFile?.readOnly, activeFileContent, autoSaveEnabled, isDirty]);
 
   useEffect(() => {
+    if (!isTauriRuntime()) return;
+
     const disposers: Array<() => void> = [];
     let openedFromLaunchEvent = false;
     let workspaceRefreshTimer: number | null = null;
 
     void listen<string>('inkstack://menu', (event) => {
-      if (event.payload === 'new-file') void createUntitledMarkdownFile();
-      if (event.payload === 'open-workspace') {
-        void openDirectory().then((path) => {
-          if (path) void openWorkspacePath(path);
-        });
-      }
-      if (event.payload === 'open-file') {
-        void openMarkdownFileDialog().then((path) => {
-          if (path) void openTextPath(path);
-        });
-      }
-      if (event.payload === 'save') void saveActiveFile();
-      if (event.payload === 'save-as') void saveActiveFileAs();
-      if (event.payload === 'reveal-file') void revealActiveFile();
-      if (event.payload === 'toggle-sidebar') toggleSidebar();
-      if (event.payload === 'toggle-ai') toggleAiPanel();
+      if (!isAppCommandId(event.payload)) return;
+      void runAppCommand(event.payload);
     }).then((dispose) => disposers.push(dispose));
 
     void listen<string[]>('inkstack://open-paths', (event) => {
@@ -134,24 +141,17 @@ export function useDesktopEvents() {
       if (workspaceRefreshTimer) window.clearTimeout(workspaceRefreshTimer);
       for (const dispose of disposers) dispose();
     };
-  }, [toggleAiPanel, toggleSidebar]);
+  }, []);
 
   useEffect(() => {
-    let allowClose = false;
+    if (!isTauriRuntime()) return;
+
     let disposed = false;
     let unlisten: (() => void) | null = null;
 
     void getCurrentWindow().onCloseRequested(async (event) => {
-      if (allowClose) return;
-      const dirtyTabs = useStore.getState().documentTabs.some((tab) => tab.isDirty) || useStore.getState().isDirty;
-      if (!dirtyTabs) return;
-
       event.preventDefault();
-      const canClose = await ensureCanReplaceWorkspaceDocuments();
-      if (!canClose) return;
-
-      allowClose = true;
-      await getCurrentWindow().close();
+      await requestAppQuit();
     }).then((dispose) => {
       if (disposed) dispose();
       else unlisten = dispose;

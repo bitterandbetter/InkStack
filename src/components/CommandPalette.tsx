@@ -8,6 +8,7 @@ import {
   Code,
   Code2,
   Columns2,
+  FileCode2,
   FilePlus2,
   FileText,
   FolderOpen,
@@ -39,18 +40,14 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store';
 import { getSettings, searchTextFiles, type AppSettings, type MarkdownSearchResult } from '../lib/fs';
-import {
-  createUntitledMarkdownFile,
-  openTextPath,
-  openWorkspacePath,
-  saveActiveFile
-} from '../lib/desktopActions';
-import { openDirectory, openMarkdownFileDialog } from '../lib/fs';
+import { openTextPath, openWorkspacePath } from '../lib/desktopActions';
 import { cn } from '../lib/utils';
 import { BUILT_IN_THEMES } from '../lib/themes';
-import { emitAiPanelTab, emitEditorCommand, type AiPanelTab, type MarkdownEditorCommand } from '../lib/appEvents';
+import { emitEditorCommand, type MarkdownEditorCommand } from '../lib/appEvents';
 import type { EditorAiPromptKey } from '../lib/aiPrompts';
 import { fileNameFromPath } from '../lib/path';
+import { APP_COMMAND_SHORTCUTS, runAppCommand } from '../lib/appCommands';
+import { MARKDOWN_COMMANDS } from '../lib/markdownCommands';
 
 type CommandItem = {
   id: string;
@@ -69,10 +66,6 @@ export function CommandPalette() {
     closeCommandPalette,
     locale,
     rootPath,
-    setViewMode,
-    toggleAiPanel,
-    toggleThemeMode,
-    toggleSidebar,
     isDarkMode,
     activeFile,
     editorSelection,
@@ -82,9 +75,7 @@ export function CommandPalette() {
     setReadingSettings,
     resetReadingSettings,
     canGoBack,
-    canGoForward,
-    goBack,
-    goForward
+    canGoForward
   } = useStore();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MarkdownSearchResult[]>([]);
@@ -131,10 +122,6 @@ export function CommandPalette() {
   }, [commandPaletteOpen, query, rootPath]);
 
   const commands = useMemo<CommandItem[]>(() => {
-    const openAiTab = (tab: AiPanelTab) => {
-      if (!useStore.getState().aiPanelOpen) toggleAiPanel();
-      emitAiPanelTab(tab);
-    };
     const isMarkdownEditable = Boolean(activeFile?.isMarkdown && !activeFile.readOnly);
     const hasSelection = Boolean(editorSelection?.text.trim());
     const commandDisabledSubtitle = locale === 'zh' ? '需要打开可编辑 Markdown 文档' : 'Open an editable Markdown document first';
@@ -174,36 +161,30 @@ export function CommandPalette() {
       {
         id: 'new-file',
         title: locale === 'zh' ? '新建 Markdown 文档' : 'New Markdown document',
-        subtitle: locale === 'zh' ? '创建一个未保存的新文档' : 'Create an unsaved Markdown file',
+        subtitle: APP_COMMAND_SHORTCUTS['new-file'],
         icon: <FilePlus2 size={15} />,
-        run: createUntitledMarkdownFile
+        run: () => runAppCommand('new-file')
       },
       {
         id: 'open-file',
         title: locale === 'zh' ? '打开文本或代码文件' : 'Open text or code file',
-        subtitle: locale === 'zh' ? '使用系统文件选择器' : 'Use the native file picker',
+        subtitle: APP_COMMAND_SHORTCUTS['open-file'],
         icon: <FileText size={15} />,
-        run: async () => {
-          const path = await openMarkdownFileDialog();
-          if (path) await openTextPath(path);
-        }
+        run: () => runAppCommand('open-file')
       },
       {
         id: 'open-workspace',
         title: locale === 'zh' ? '打开本地目录' : 'Open local folder',
-        subtitle: locale === 'zh' ? '载入 Markdown / 代码工作区' : 'Load a Markdown / code workspace',
+        subtitle: APP_COMMAND_SHORTCUTS['open-workspace'],
         icon: <FolderOpen size={15} />,
-        run: async () => {
-          const path = await openDirectory();
-          if (path) await openWorkspacePath(path);
-        }
+        run: () => runAppCommand('open-workspace')
       },
       {
         id: 'save',
         title: locale === 'zh' ? '保存当前文档' : 'Save current document',
-        subtitle: 'Cmd/Ctrl+S',
+        subtitle: APP_COMMAND_SHORTCUTS.save,
         icon: <Save size={15} />,
-        run: saveActiveFile
+        run: () => runAppCommand('save')
       },
       ...(mergePinnedRecentEntries(recentSettings?.pinnedWorkspaces ?? [], recentSettings?.recentWorkspaces ?? [], 6).map(({ path, pinned }) => ({
         id: `${pinned ? 'pinned' : 'recent'}-workspace:${path}`,
@@ -230,68 +211,65 @@ export function CommandPalette() {
       {
         id: 'find',
         title: locale === 'zh' ? '查找 / 替换当前文档' : 'Find / replace in current document',
-        subtitle: 'Cmd/Ctrl+F',
+        subtitle: APP_COMMAND_SHORTCUTS.find,
         icon: <Search size={15} />,
-        run: () => emitEditorCommand({ type: 'find' })
+        run: () => runAppCommand('find')
       },
       {
         id: 'history-back',
         title: locale === 'zh' ? '返回上一个文档' : 'Back to previous document',
         subtitle: canGoBack ? undefined : (locale === 'zh' ? '没有可返回的标签历史' : 'No previous tab history'),
         icon: <ChevronLeft size={15} />,
-        run: () => {
-          if (useStore.getState().canGoBack) goBack();
-        }
+        run: () => runAppCommand('history-back')
       },
       {
         id: 'history-forward',
         title: locale === 'zh' ? '前进到下一个文档' : 'Forward to next document',
         subtitle: canGoForward ? undefined : (locale === 'zh' ? '没有可前进的标签历史' : 'No forward tab history'),
         icon: <ChevronRight size={15} />,
-        run: () => {
-          if (useStore.getState().canGoForward) goForward();
-        }
+        run: () => runAppCommand('history-forward')
       },
       {
         id: 'toggle-ai',
         title: locale === 'zh' ? '切换 AI 面板' : 'Toggle AI panel',
-        subtitle: locale === 'zh' ? '打开写作助手与模型设置' : 'Open assistant and model settings',
+        subtitle: APP_COMMAND_SHORTCUTS['toggle-ai'],
         icon: <Bot size={15} />,
-        run: toggleAiPanel
+        run: () => runAppCommand('toggle-ai')
       },
       {
         id: 'ai-chat',
         title: locale === 'zh' ? '打开 AI 对话' : 'Open AI chat',
         subtitle: locale === 'zh' ? '切到 AI 助手页' : 'Switch to the AI assistant tab',
         icon: <Sparkles size={15} />,
-        run: () => openAiTab('ai')
+        run: () => runAppCommand('ai-chat')
       },
       {
         id: 'ai-outline',
         title: locale === 'zh' ? '打开智能大纲' : 'Open smart outline',
         subtitle: locale === 'zh' ? '标题、代码块和代码符号' : 'Headings, code blocks, and code symbols',
         icon: <Pilcrow size={15} />,
-        run: () => openAiTab('outline')
+        run: () => runAppCommand('ai-outline')
       },
       {
         id: 'ai-code',
         title: locale === 'zh' ? '打开代码面板' : 'Open code panel',
         subtitle: locale === 'zh' ? '查看、筛选、复制和解释代码块' : 'Inspect, filter, copy, and explain code blocks',
         icon: <Code2 size={15} />,
-        run: () => openAiTab('code')
+        run: () => runAppCommand('ai-code')
       },
       {
         id: 'ai-settings',
         title: locale === 'zh' ? '打开 AI 与主题设置' : 'Open AI and theme settings',
         subtitle: locale === 'zh' ? '模型、提示词、主题导入与导出' : 'Models, prompts, theme import and export',
         icon: <Settings size={15} />,
-        run: () => openAiTab('settings')
+        run: () => runAppCommand('ai-settings')
       },
       {
         id: 'toggle-sidebar',
         title: locale === 'zh' ? '切换侧边栏' : 'Toggle sidebar',
+        subtitle: APP_COMMAND_SHORTCUTS['toggle-sidebar'],
         icon: <PanelLeft size={15} />,
-        run: toggleSidebar
+        run: () => runAppCommand('toggle-sidebar')
       },
       {
         id: 'theme',
@@ -299,7 +277,7 @@ export function CommandPalette() {
           ? (locale === 'zh' ? '切换到浅色主题' : 'Switch to light theme')
           : (locale === 'zh' ? '切换到深色主题' : 'Switch to dark theme'),
         icon: isDarkMode ? <Sun size={15} /> : <Moon size={15} />,
-        run: toggleThemeMode
+        run: () => runAppCommand('theme-toggle')
       },
       ...BUILT_IN_THEMES.map((theme) => ({
         id: `theme-${theme.id}`,
@@ -308,25 +286,35 @@ export function CommandPalette() {
           ? (locale === 'zh' ? '当前主题' : 'Current theme')
           : (locale === 'zh' ? '内置主题' : 'Built-in theme'),
         icon: theme.id === 'dark' || theme.id === 'code-docs' ? <Moon size={15} /> : <Sun size={15} />,
-        run: () => setActiveThemeId(theme.id)
+        run: () => setActiveThemeId(theme.id, '')
       })),
-      {
-        id: 'view-split',
-        title: locale === 'zh' ? '切换到分屏模式' : 'Switch to split view',
-        icon: <PanelLeft size={15} />,
-        run: () => setViewMode('split')
-      },
       {
         id: 'view-edit',
         title: locale === 'zh' ? '切换到编辑模式' : 'Switch to edit view',
+        subtitle: APP_COMMAND_SHORTCUTS['view-edit'],
         icon: <FileText size={15} />,
-        run: () => setViewMode('edit')
+        run: () => runAppCommand('view-edit')
+      },
+      {
+        id: 'view-split',
+        title: locale === 'zh' ? '切换到分屏模式' : 'Switch to split view',
+        subtitle: APP_COMMAND_SHORTCUTS['view-split'],
+        icon: <PanelLeft size={15} />,
+        run: () => runAppCommand('view-split')
       },
       {
         id: 'view-read',
         title: locale === 'zh' ? '切换到阅读模式' : 'Switch to read view',
+        subtitle: APP_COMMAND_SHORTCUTS['view-read'],
         icon: <Search size={15} />,
-        run: () => setViewMode('read')
+        run: () => runAppCommand('view-read')
+      },
+      {
+        id: 'view-code',
+        title: locale === 'zh' ? '切换到代码查看模式' : 'Switch to code view',
+        subtitle: `${APP_COMMAND_SHORTCUTS['view-code']} · ${locale === 'zh' ? '集中查看当前文档或代码文件中的代码结构' : 'Inspect code blocks or the current code file'}`,
+        icon: <FileCode2 size={15} />,
+        run: () => runAppCommand('view-code')
       },
       {
         id: 'reading-width-up',
@@ -362,26 +350,13 @@ export function CommandPalette() {
         icon: <BookOpen size={15} />,
         run: resetReadingSettings
       },
-      markdownCommand('md-h1', locale === 'zh' ? '插入一级标题' : 'Insert heading 1', 'heading1', <Heading1 size={15} />, 'Cmd/Ctrl+1'),
-      markdownCommand('md-h2', locale === 'zh' ? '插入二级标题' : 'Insert heading 2', 'heading2', <Heading2 size={15} />, 'Cmd/Ctrl+2'),
-      markdownCommand('md-h3', locale === 'zh' ? '插入三级标题' : 'Insert heading 3', 'heading3', <Heading3 size={15} />, 'Cmd/Ctrl+3'),
-      markdownCommand('md-bold', locale === 'zh' ? '加粗选区' : 'Bold selection', 'bold', <Braces size={15} />, 'Cmd/Ctrl+B'),
-      markdownCommand('md-italic', locale === 'zh' ? '斜体选区' : 'Italic selection', 'italic', <Italic size={15} />, 'Cmd/Ctrl+I'),
-      markdownCommand('md-strike', locale === 'zh' ? '删除线' : 'Strikethrough', 'strike', <Strikethrough size={15} />),
-      markdownCommand('md-inline-code', locale === 'zh' ? '行内代码' : 'Inline code', 'inlineCode', <Code size={15} />),
-      markdownCommand('md-code-block', locale === 'zh' ? '插入代码块' : 'Insert code block', 'codeBlock', <Code2 size={15} />),
-      markdownCommand('md-quote', locale === 'zh' ? '引用块' : 'Block quote', 'quote', <Quote size={15} />),
-      markdownCommand('md-bullet', locale === 'zh' ? '无序列表' : 'Bulleted list', 'bulletList', <List size={15} />),
-      markdownCommand('md-ordered', locale === 'zh' ? '有序列表' : 'Ordered list', 'orderedList', <ListOrdered size={15} />),
-      markdownCommand('md-task', locale === 'zh' ? '任务列表' : 'Task list', 'taskList', <ListChecks size={15} />),
-      markdownCommand('md-link', locale === 'zh' ? '插入链接' : 'Insert link', 'link', <Link size={15} />, 'Cmd/Ctrl+K'),
-      markdownCommand('md-image', locale === 'zh' ? '插入图片语法' : 'Insert image syntax', 'image', <Image size={15} />),
-      markdownCommand('md-table', locale === 'zh' ? '插入 Markdown 表格' : 'Insert Markdown table', 'table', <Table2 size={15} />),
-      markdownCommand('md-table-format', locale === 'zh' ? '格式化当前表格' : 'Format current table', 'formatTable', <Table2 size={15} />),
-      markdownCommand('md-table-row', locale === 'zh' ? '表格：在下方插入行' : 'Table: insert row below', 'insertTableRow', <ListOrdered size={15} />),
-      markdownCommand('md-table-column', locale === 'zh' ? '表格：在右侧插入列' : 'Table: insert column right', 'insertTableColumn', <Columns2 size={15} />),
-      markdownCommand('md-table-paste-csv', locale === 'zh' ? '从剪贴板 CSV/TSV 插入表格' : 'Insert table from clipboard CSV/TSV', 'pasteCsvTable', <Table2 size={15} />),
-      markdownCommand('md-divider', locale === 'zh' ? '插入分割线' : 'Insert divider', 'divider', <Minus size={15} />),
+      ...MARKDOWN_COMMANDS.map((command) => markdownCommand(
+        `md-${command.action}`,
+        command.title[locale],
+        command.action,
+        getMarkdownCommandIcon(command.action),
+        command.shortcut
+      )),
       selectionAiCommand('ai-selection-rewrite', locale === 'zh' ? 'AI 改写选区' : 'AI rewrite selection', 'rewrite', <Wand2 size={15} />),
       selectionAiCommand('ai-selection-polish', locale === 'zh' ? 'AI 润色选区' : 'AI polish selection', 'polish', <Sparkles size={15} />),
       selectionAiCommand('ai-selection-expand', locale === 'zh' ? 'AI 扩写选区' : 'AI expand selection', 'expand', <Columns2 size={15} />),
@@ -402,8 +377,6 @@ export function CommandPalette() {
     canGoBack,
     canGoForward,
     editorSelection,
-    goBack,
-    goForward,
     isDarkMode,
     locale,
     query,
@@ -415,11 +388,7 @@ export function CommandPalette() {
     resetReadingSettings,
     setActiveThemeId,
     setReadingSettings,
-    setViewMode,
-    themeState.activeThemeId,
-    toggleAiPanel,
-    toggleThemeMode,
-    toggleSidebar
+    themeState.activeThemeId
   ]);
 
   const fileItems = useMemo<CommandItem[]>(() => results.map((file) => ({
@@ -527,6 +496,49 @@ export function CommandPalette() {
       </div>
     </div>
   );
+}
+
+function getMarkdownCommandIcon(action: MarkdownEditorCommand) {
+  switch (action) {
+    case 'heading1':
+      return <Heading1 size={15} />;
+    case 'heading2':
+      return <Heading2 size={15} />;
+    case 'heading3':
+      return <Heading3 size={15} />;
+    case 'bold':
+      return <Braces size={15} />;
+    case 'italic':
+      return <Italic size={15} />;
+    case 'strike':
+      return <Strikethrough size={15} />;
+    case 'inlineCode':
+      return <Code size={15} />;
+    case 'codeBlock':
+      return <Code2 size={15} />;
+    case 'quote':
+      return <Quote size={15} />;
+    case 'bulletList':
+      return <List size={15} />;
+    case 'orderedList':
+      return <ListOrdered size={15} />;
+    case 'taskList':
+      return <ListChecks size={15} />;
+    case 'link':
+      return <Link size={15} />;
+    case 'image':
+      return <Image size={15} />;
+    case 'table':
+    case 'formatTable':
+    case 'pasteCsvTable':
+      return <Table2 size={15} />;
+    case 'insertTableRow':
+      return <ListOrdered size={15} />;
+    case 'insertTableColumn':
+      return <Columns2 size={15} />;
+    case 'divider':
+      return <Minus size={15} />;
+  }
 }
 
 function mergePinnedRecentEntries(pinned: string[], recent: string[], limit: number) {

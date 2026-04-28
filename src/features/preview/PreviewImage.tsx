@@ -2,6 +2,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { ImageOff, Maximize2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { resolveMarkdownAsset } from '../../lib/fs';
+import { isTauriRuntime } from '../../lib/tauriRuntime';
 
 export function PreviewImage({
   src,
@@ -17,10 +18,12 @@ export function PreviewImage({
   const [resolvedSrc, setResolvedSrc] = useState(src);
   const [failed, setFailed] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const displaySrc = failed ? src : resolvedSrc;
 
   useEffect(() => {
     let cancelled = false;
     setFailed(false);
+    setIsOpen(false);
 
     if (!src || isRemoteAsset(src)) {
       setResolvedSrc(src);
@@ -29,7 +32,7 @@ export function PreviewImage({
 
     void resolveMarkdownAsset(documentPath, src)
       .then((path) => {
-        if (!cancelled) setResolvedSrc(convertFileSrc(path));
+        if (!cancelled) setResolvedSrc(isTauriRuntime() ? convertFileSrc(path) : path);
       })
       .catch(() => {
         if (!cancelled) {
@@ -45,20 +48,29 @@ export function PreviewImage({
 
   if (failed) {
     return (
-      <span className="my-6 flex items-center gap-2 rounded-md border border-border-subtle bg-bg-panel px-3 py-2 text-[13px] text-text-tertiary">
-        <ImageOff size={15} />
-        {locale === 'zh' ? '图片无法加载' : 'Image unavailable'}: <code className="text-[12px]">{src}</code>
+      <span className="my-6 block rounded-md border border-dashed border-border-subtle bg-bg-panel px-3 py-2 text-[13px] text-text-secondary" data-inkstack-preview="missing-image">
+        <span className="flex items-center gap-2 font-medium text-text-primary">
+          <ImageOff size={15} />
+          {locale === 'zh' ? '图片无法加载' : 'Image unavailable'}
+        </span>
+        <code className="mt-1 block truncate text-[12px] text-text-tertiary">{src}</code>
+        <span className="mt-2 block text-[12px] leading-relaxed text-text-tertiary">
+          {locale === 'zh'
+            ? '请检查相对路径是否存在，或将图片拖入编辑器自动复制到 assets 后重新插入。'
+            : 'Check that the relative path exists, or drag the image into the editor to copy it into assets and insert it again.'}
+        </span>
       </span>
     );
   }
 
   return (
     <>
-      <span className="group relative my-6 block w-fit max-w-full">
+      <span className="group relative my-6 block w-fit max-w-full" data-inkstack-preview="image">
         <img
-          src={resolvedSrc}
+          src={displaySrc}
           alt={alt}
           className="max-h-[70vh] max-w-full cursor-zoom-in rounded-md border border-border-subtle object-contain"
+          onError={() => setFailed(true)}
           onClick={() => setIsOpen(true)}
         />
         <button
@@ -80,9 +92,10 @@ export function PreviewImage({
             <X size={24} />
           </button>
           <img
-            src={resolvedSrc}
+            src={displaySrc}
             alt={alt}
             className="max-h-full max-w-full object-contain"
+            onError={() => setFailed(true)}
             onClick={(event) => event.stopPropagation()}
           />
         </div>

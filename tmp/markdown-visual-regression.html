@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>InkStack Markdown Visual Regression Fixture</title>
+  <style>
+    :root {
+      --color-bg-base: #fbfcfd;
+      --color-bg-panel: #f2f5f7;
+      --color-border-subtle: #d9e0e6;
+      --color-text-primary: #1f2933;
+      --color-text-secondary: #52606d;
+      --color-text-tertiary: #7b8794;
+      --color-code-bg: #f7f8fa;
+      --color-code-header-bg: #eef1f4;
+      --color-code-text: #26323f;
+      --color-code-muted: #8a96a3;
+      --color-code-keyword: #6f5f9a;
+      --color-code-string: #4f7f63;
+      --color-code-number: #8a6f3d;
+      --color-code-comment: #7b8794;
+      --color-code-title: #3f6f8f;
+      --color-code-attr: #7a668c;
+      --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body {
+      margin: 0;
+      background: var(--color-bg-base);
+      color: var(--color-text-primary);
+      font-family: var(--font-sans);
+    }
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px;
+    }
+    .section {
+      margin: 24px 0;
+      border: 1px solid var(--color-border-subtle);
+      border-radius: 8px;
+      background: white;
+      overflow: hidden;
+    }
+    .section h2 {
+      margin: 0;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--color-border-subtle);
+      background: var(--color-bg-panel);
+      font-size: 14px;
+    }
+    .chart-container,
+    [data-inkstack-preview="missing-image"],
+    [data-inkstack-preview="table"],
+    .inkstack-code-surface {
+      margin: 16px;
+    }
+    .chart-container {
+      min-height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--color-border-subtle);
+      border-radius: 8px;
+      background: var(--color-bg-panel);
+    }
+    .inkstack-code-toolbar {
+      margin: 16px 16px 0;
+      border: 1px solid var(--color-border-subtle);
+      border-bottom: 0;
+      border-radius: 8px 8px 0 0;
+      background: var(--color-code-header-bg);
+      color: var(--color-text-secondary);
+      padding: 8px 12px;
+      font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .inkstack-code-surface {
+      border: 1px solid var(--color-border-subtle);
+      border-radius: 0 0 8px 8px;
+      background: var(--color-code-bg);
+      color: var(--color-code-text);
+      overflow: hidden;
+    }
+    .inkstack-code-surface pre {
+      margin: 0;
+      padding: 16px;
+      overflow: auto;
+      font: 12px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    [data-inkstack-preview="table"] {
+      overflow-x: auto;
+      border: 1px solid var(--color-border-subtle);
+      border-radius: 8px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--color-border-subtle);
+      padding: 10px 12px;
+      text-align: left;
+    }
+    th { background: var(--color-bg-panel); }
+    [data-inkstack-preview="missing-image"] {
+      display: block;
+      border: 1px dashed var(--color-border-subtle);
+      border-radius: 8px;
+      background: var(--color-bg-panel);
+      padding: 12px;
+      color: var(--color-text-secondary);
+      font-size: 13px;
+    }
+    code.path {
+      display: block;
+      margin-top: 6px;
+      color: var(--color-text-tertiary);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>InkStack Markdown Visual Regression Fixture</h1>
+    <p>用于人工快速打开检查，也作为自动 smoke 检查的输出样张。桌面端回归时，请在 Tauri 窗口中同步检查浅色/深色主题、AI 面板、代码视图和设置页。</p>
+    <section class="section">
+      <h2>Desktop Checklist</h2>
+      <ul>
+        <li>浅色和深色主题下代码块背景不突兀，文字对比清晰。</li>
+        <li>Mermaid、表格、缺失图片提示和代码块复制按钮均可见。</li>
+        <li>AI 面板可打开设置、代码视图、智能大纲和普通对话。</li>
+        <li>独立 Vite 页面应显示 Tauri 运行时提示，不假装拥有本地文件能力。</li>
+        <li>快捷键顺序：Cmd/Ctrl+1 编辑、2 分屏、3 阅读、4 代码；菜单、顶部按钮、命令面板一致。</li>
+        <li>新建、重命名、删除工作区文件后无需重新打开目录即可刷新文件树。</li>
+        <li>打包前运行 npm run tauri:check-macos，并完成 Finder 默认编辑器手检。</li>
+      </ul>
+    </section>
+
+    <section class="section" data-inkstack-preview="mermaid">
+      <h2>Mermaid</h2>
+      <div class="chart-container">
+        <pre>flowchart TD
+  A[打开 Markdown 文件] --&gt; B[解析目录与内容]
+  B --&gt; C{内容类型}
+  C --&gt;|Markdown| D[编辑 + 预览]
+  C --&gt;|代码/文本| E[只读代码查看]
+  D --&gt; F[AI 选区能力]
+  E --&gt; G[AI 代码解释]
+  F --&gt; H[上下文确认]
+  G --&gt; H
+  H --&gt; I[用户确认后发送]</pre>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Table</h2>
+      <div data-inkstack-preview="table">
+        <table>
+          <thead><tr><th>功能</th><th>操作</th><th>预期</th><th>状态</th></tr></thead>
+          <tbody><tr><td>Front matter 隐藏</td><td>查看预览顶部</td><td>不显示 YAML 元数据</td><td>待检查</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Code Blocks</h2>
+      <div data-inkstack-preview="code-block">
+    <div class="inkstack-code-toolbar">typescript</div>
+    <div class="inkstack-code-surface" data-inkstack-preview="code-surface">
+      <pre><code>interface MarkdownDocument {
+  path: string;
+  content: string;
+  modifiedAt: number;
+}
+
+export function createDocumentSummary(document: MarkdownDocument): string {
+  const lines = document.content.split(&#39;\n&#39;).length;
+  const chars = document.content.length;
+  return `${document.path}: ${lines} lines, ${chars} chars`;
+}
+
+export async function explainSelection(selection: string): Promise&lt;string&gt; {
+  if (!selection.trim()) {
+    return &#39;No selection&#39;;
+  }
+  return `Explain: ${selection.slice(0, 80)}`;
+}</code></pre>
+    </div>
+  </div>
+      <div data-inkstack-preview="code-block">
+    <div class="inkstack-code-toolbar">python</div>
+    <div class="inkstack-code-surface" data-inkstack-preview="code-surface">
+      <pre><code>class WorkspaceIndex:
+    def __init__(self, root: str):
+        self.root = root
+
+    def scan(self) -&gt; list[str]:
+        return [&quot;README.md&quot;, &quot;notes/idea.md&quot;, &quot;src/main.ts&quot;]
+
+
+def summarize_workspace(root: str) -&gt; str:
+    index = WorkspaceIndex(root)
+    return f&quot;{root}: {len(index.scan())} files&quot;</code></pre>
+    </div>
+  </div>
+    </section>
+
+    <section class="section">
+      <h2>Missing Image</h2>
+      <span data-inkstack-preview="missing-image">
+        图片无法加载
+        <code class="path">./assets/missing-image-for-regression.png</code>
+        <span>请检查相对路径是否存在，或将图片拖入编辑器自动复制到 assets 后重新插入。</span>
+      </span>
+    </section>
+  </main>
+</body>
+</html>

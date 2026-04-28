@@ -12,11 +12,13 @@ import {
   getMarkdownFileMetadata,
   revealMarkdownFile,
   renameWorkspaceEntry,
+  showDesktopNotification,
   writeFileContent,
   writeFileContentAs
 } from './fs';
 import { fileNameFromPath } from './path';
-import { useStore, type DocumentTab } from '../store';
+import { invoke, isTauriRuntime } from './tauriRuntime';
+import { useStore, type DocumentTab, type SaveFailureType, type SaveHistorySource } from '../store';
 
 export async function ensureCanReplaceActiveDocument(): Promise<boolean> {
   const {
@@ -87,6 +89,14 @@ export async function ensureCanReplaceWorkspaceDocuments(): Promise<boolean> {
   return saveDirtyTabs(dirtyTabs.map((tab) => tab.id), locale, markSaveError);
 }
 
+export async function requestAppQuit(): Promise<boolean> {
+  if (!(await ensureCanReplaceWorkspaceDocuments())) return false;
+  if (!isTauriRuntime()) return false;
+
+  await invoke('quit_app');
+  return true;
+}
+
 export async function ensureCanModifyWorkspaceEntry(path: string): Promise<boolean> {
   const {
     locale,
@@ -148,7 +158,7 @@ export async function openMarkdownPath(path: string, line?: number | null, optio
   const currentState = useStore.getState();
   const current = currentState.activeFile;
   const sameFile = Boolean(current?.path && current.path === path);
-  if (!sameFile && options.skipUnsavedCheck === false && !(await ensureCanReplaceActiveDocument())) return false;
+  if (!sameFile && !options.skipUnsavedCheck && !(await ensureCanReplaceActiveDocument())) return false;
 
   const existingTab = currentState.documentTabs.find((tab) => tab.file.path === path);
   if (existingTab) {
@@ -191,7 +201,7 @@ export async function openTextPath(path: string, line?: number | null, options: 
   const currentState = useStore.getState();
   const current = currentState.activeFile;
   const sameFile = Boolean(current?.path && current.path === path);
-  if (!sameFile && options.skipUnsavedCheck === false && !(await ensureCanReplaceActiveDocument())) return false;
+  if (!sameFile && !options.skipUnsavedCheck && !(await ensureCanReplaceActiveDocument())) return false;
 
   const existingTab = currentState.documentTabs.find((tab) => tab.file.path === path);
   if (existingTab) {
@@ -236,7 +246,7 @@ export async function openTextPath(path: string, line?: number | null, options: 
   return true;
 }
 
-export async function saveActiveFile(): Promise<boolean> {
+export async function saveActiveFile(source: SaveHistorySource = 'manual'): Promise<boolean> {
   const {
     activeFile,
     activeFileContent,
@@ -245,12 +255,23 @@ export async function saveActiveFile(): Promise<boolean> {
     markSaving,
     markSaved,
     markSaveError,
-    openSaveConflict
+    openSaveConflict,
+    recordSaveHistory
   } = useStore.getState();
 
   if (!activeFile || !isDirty) return true;
-  if (activeFile.readOnly || !activeFile.isMarkdown) {
-    markSaveError(activeFile.readOnly ? '当前文件以只读方式打开' : '当前只支持保存 Markdown 文件');
+    if (activeFile.readOnly || !activeFile.isMarkdown) {
+    const message = activeFile.readOnly ? '当前文件以只读方式打开' : '当前只支持保存 Markdown 文件';
+    markSaveError(message);
+    void notifySaveFailure(activeFile.name, message, source);
+    recordSaveHistory({
+      filePath: activeFile.path || activeFile.name,
+      fileName: activeFile.name,
+      source,
+      success: false,
+      failureType: activeFile.readOnly ? 'readonly' : 'unsupported',
+      message
+    });
     return false;
   }
   if (!activeFile.path) {
@@ -261,11 +282,28 @@ export async function saveActiveFile(): Promise<boolean> {
     markSaving();
     const metadata = await writeFileContent(activeFile.path, activeFileContent, activeFileMetadata);
     markSaved(metadata);
+    recordSaveHistory({
+      filePath: activeFile.path,
+      fileName: activeFile.name,
+      source,
+      success: true,
+      failureType: 'none',
+      message: source === 'auto' ? '自动保存成功' : '保存成功'
+    });
     return true;
   } catch (err: any) {
     console.error('Save failed', err);
     const message = err?.message ?? '保存失败';
     markSaveError(message);
+    void notifySaveFailure(activeFile.name, message, source);
+    recordSaveHistory({
+      filePath: activeFile.path,
+      fileName: activeFile.name,
+      source,
+      success: false,
+      failureType: classifySaveFailure(message),
+      message
+    });
     if (isExternalModificationError(message)) {
       openSaveConflict({
         path: activeFile.path,
@@ -293,7 +331,7 @@ async function saveDirtyTabs(
       switchDocumentTab(tabId);
     }
 
-    const saved = await saveActiveFile();
+    const saved = await saveActiveFile('manual');
     const afterSave = useStore.getState();
     if (!saved || afterSave.saveState === 'error') {
       markSaveError(afterSave.saveMessage || (locale === 'zh' ? '保存失败，已取消后续操作。' : 'Save failed; action cancelled.'));
@@ -317,7 +355,8 @@ export async function saveActiveFileAs(): Promise<boolean> {
     markSaveError,
     setActiveFile,
     closeDocumentTab,
-    activeTabId
+    activeTabId,
+    recordSaveHistory
   } = useStore.getState();
 
   if (!activeFile) return true;
@@ -327,6 +366,14 @@ export async function saveActiveFileAs(): Promise<boolean> {
     const document = await writeFileContentAs(activeFile.name || 'Untitled.md', activeFileContent);
     if (!document) {
       markSaveError('已取消保存');
+      recordSaveHistory({
+        filePath: activeFile.path || activeFile.name,
+        fileName: activeFile.name,
+        source: 'save-as',
+        success: false,
+        failureType: 'cancelled',
+        message: '已取消保存'
+      });
       return false;
     }
 
@@ -348,10 +395,28 @@ export async function saveActiveFileAs(): Promise<boolean> {
       closeDocumentTab(activeTabId);
     }
     markSaved(document.metadata);
+    recordSaveHistory({
+      filePath: document.path,
+      fileName: fileNameFromPath(document.path),
+      source: 'save-as',
+      success: true,
+      failureType: 'none',
+      message: '另存为成功'
+    });
     return true;
   } catch (err: any) {
     console.error('Save as failed', err);
-    markSaveError(err?.message ?? '另存为失败');
+    const message = err?.message ?? '另存为失败';
+    markSaveError(message);
+    void notifySaveFailure(activeFile.name, message, 'save-as');
+    recordSaveHistory({
+      filePath: activeFile.path || activeFile.name,
+      fileName: activeFile.name,
+      source: 'save-as',
+      success: false,
+      failureType: classifySaveFailure(message),
+      message
+    });
     return false;
   }
 }
@@ -499,6 +564,49 @@ export async function checkActiveFileExternalModification(): Promise<boolean> {
 function isExternalModificationError(message: string) {
   return message.includes('文件已在外部被修改')
     || message.toLowerCase().includes('externally modified');
+}
+
+function classifySaveFailure(message: string): SaveFailureType {
+  const normalized = message.toLowerCase();
+  if (isExternalModificationError(message) || normalized.includes('changed on disk') || message.includes('外部')) {
+    return 'conflict';
+  }
+  if (
+    normalized.includes('permission')
+    || normalized.includes('denied')
+    || normalized.includes('readonly')
+    || normalized.includes('read-only')
+    || message.includes('权限')
+    || message.includes('只读')
+  ) {
+    return 'permission';
+  }
+  if (
+    normalized.includes('not found')
+    || normalized.includes('no such file')
+    || normalized.includes('missing')
+    || message.includes('不存在')
+  ) {
+    return 'missing';
+  }
+  if (normalized.includes('cancel') || message.includes('取消')) {
+    return 'cancelled';
+  }
+  if (normalized.includes('unsupported') || normalized.includes('markdown') || message.includes('不支持')) {
+    return 'unsupported';
+  }
+  return 'unknown';
+}
+
+async function notifySaveFailure(fileName: string, message: string, source: SaveHistorySource) {
+  try {
+    await showDesktopNotification(
+      source === 'auto' ? 'InkStack 自动保存失败' : 'InkStack 保存失败',
+      `${fileName}: ${message}`
+    );
+  } catch (error) {
+    console.warn('Desktop notification failed', error);
+  }
 }
 
 function isSameOrChildPath(candidatePath: string, parentPath: string) {

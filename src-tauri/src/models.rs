@@ -5,7 +5,11 @@ pub struct AppSettings {
     #[serde(default)]
     pub recent_workspaces: Vec<String>,
     #[serde(default)]
+    pub recent_workspace_entries: Vec<RecentEntryMeta>,
+    #[serde(default)]
     pub recent_files: Vec<String>,
+    #[serde(default)]
+    pub recent_file_entries: Vec<RecentEntryMeta>,
     #[serde(default)]
     pub pinned_workspaces: Vec<String>,
     #[serde(default)]
@@ -20,13 +24,21 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             recent_workspaces: Vec::new(),
+            recent_workspace_entries: Vec::new(),
             recent_files: Vec::new(),
+            recent_file_entries: Vec::new(),
             pinned_workspaces: Vec::new(),
             pinned_files: Vec::new(),
             last_workspace: None,
             last_file: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentEntryMeta {
+    pub path: String,
+    pub opened_at: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -95,10 +107,24 @@ pub struct ImportedMarkdownAsset {
     pub relative_src: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct PickedMarkdownAsset {
+    pub source_path: String,
+    pub path: String,
+    pub relative_src: String,
+    pub markdown_src: String,
+    pub file_name: String,
+    pub is_image: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ImportMarkdownAssetRequest {
     pub document_path: String,
     pub source_path: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,6 +167,24 @@ pub struct CssThemeSummary {
     pub name: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SystemProfilerFontResponse {
+    #[serde(rename = "SPFontsDataType", default)]
+    pub fonts: Vec<SystemProfilerFontItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SystemProfilerFontItem {
+    #[serde(default)]
+    pub typefaces: Vec<SystemProfilerTypeface>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SystemProfilerTypeface {
+    #[serde(default)]
+    pub family: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CssThemeDocument {
     pub id: String,
@@ -152,6 +196,13 @@ pub struct CssThemeDocument {
 #[serde(rename_all = "camelCase")]
 pub struct ExportCssThemeRequest {
     pub suggested_name: String,
+    pub css: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltInCssThemeWriteRequest {
+    pub id: String,
     pub css: String,
 }
 

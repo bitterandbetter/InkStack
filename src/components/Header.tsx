@@ -1,62 +1,115 @@
-import { FilePlus2, FileText, FolderOpen, Save, Languages, Moon, Sun, PanelLeft, Sparkles, LayoutList, BookOpen, PenLine, Search, SlidersHorizontal } from 'lucide-react';
+import { FileCode2, FilePlus2, FileText, FolderOpen, Save, Languages, Moon, Sun, PanelLeft, Sparkles, LayoutList, BookOpen, PenLine, Search, SlidersHorizontal, Type, Folder, Link2, Settings2 } from 'lucide-react';
 import { useStore } from '../store';
-import type { ReadingFont } from '../store';
-import { openDirectory, openMarkdownFileDialog } from '../lib/fs';
 import { cn } from '../lib/utils';
-import { useCallback, useState } from 'react';
-import { createUntitledMarkdownFile, openTextPath, openWorkspacePath, saveActiveFile } from '../lib/desktopActions';
+import { useEffect, useMemo, useState } from 'react';
+import { runAppCommand } from '../lib/appCommands';
+import { loadSystemFontFamilies } from '../lib/systemFonts';
+import { BUILT_IN_THEMES, loadImportedThemes, openImportedThemesDir, syncBuiltInThemesToThemeDir } from '../lib/themes';
 
 export function Header() {
   const { 
-    locale, setLocale, toggleSidebar, toggleAiPanel, toggleThemeMode, isDarkMode, openCommandPalette,
+    locale, setLocale, isDarkMode,
     activeFile, isDirty,
-    viewMode, setViewMode,
-    readingSettings, setReadingSettings, resetReadingSettings,
-    autoSaveEnabled, setAutoSaveEnabled
+    viewMode,
+    readingSettings, setReadingSettings, resetReadingSettings, editorSettings, setEditorSettings, resetEditorSettings, themeState, setThemeMode, setActiveThemeId,
+    autoSaveEnabled, setAutoSaveEnabled, splitScrollSync, setSplitScrollSync, imageInsertMode, setImageInsertMode
   } = useStore();
   const [readingSettingsOpen, setReadingSettingsOpen] = useState(false);
+  const [settingsTarget, setSettingsTarget] = useState<'reading' | 'editor'>('reading');
+  const [systemFonts, setSystemFonts] = useState<string[]>([]);
+  const [fontMessage, setFontMessage] = useState('');
+  const [themeFolderMessage, setThemeFolderMessage] = useState('');
+  const currentCustomFont = readingSettings.font.startsWith('custom:') ? readingSettings.font.slice(7) : '';
+  const activeBuiltInTheme = useMemo(
+    () => BUILT_IN_THEMES.find((theme) => theme.id === themeState.activeThemeId),
+    [themeState.activeThemeId]
+  );
+  const readingThemeOptions = useMemo(() => {
+    const importedActive = themeState.importedThemes.find((theme) => theme.id === themeState.activeThemeId);
+    if (!importedActive) return BUILT_IN_THEMES;
+    return [
+      ...BUILT_IN_THEMES,
+      {
+        ...importedActive,
+        name: `${importedActive.name} · CSS`
+      }
+    ];
+  }, [themeState.activeThemeId, themeState.importedThemes]);
 
-  const handleOpenFolder = useCallback(async () => {
-    const path = await openDirectory();
-    if (path) await openWorkspacePath(path);
-  }, []);
+  useEffect(() => {
+    if (!readingSettingsOpen) return;
+    let cancelled = false;
+    void loadSystemFontFamilies()
+      .then((fonts) => {
+        if (cancelled) return;
+        setSystemFonts(fonts);
+        setFontMessage('');
+      })
+      .catch((error) => {
+        console.error('Failed to load system fonts', error);
+        if (cancelled) return;
+        setFontMessage(locale === 'zh' ? '系统字体读取失败，已使用兼容列表。' : 'System font query failed. Using fallback list.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [readingSettingsOpen, locale]);
 
-  const handleOpenFile = useCallback(async () => {
-    const path = await openMarkdownFileDialog();
-    if (!path) return;
-
-    try {
-      await openTextPath(path);
-    } catch (err) {
-      console.error("Open file failed", err);
-    }
-  }, []);
+  useEffect(() => {
+    if (!readingSettingsOpen) return;
+    let cancelled = false;
+    void loadImportedThemes()
+      .then((themes) => {
+        if (cancelled) return;
+        useStore.getState().setImportedThemes(themes);
+      })
+      .catch((error) => {
+        console.error('Failed to load imported themes', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [readingSettingsOpen]);
 
   return (
-    <header className="h-11 border-b border-border-subtle bg-bg-panel flex items-center justify-between px-4 shrink-0 transition-colors select-none text-text-secondary text-xs font-medium">
+    <header className="relative h-11 border-b border-border-subtle bg-bg-panel flex items-center justify-between px-4 shrink-0 transition-colors select-none text-text-secondary text-xs font-medium">
+      <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
+        <button
+          onClick={() => void runAppCommand('open-command-palette')}
+          className="pointer-events-auto flex h-8 w-[min(26rem,48vw)] items-center gap-2 rounded-lg border border-border-subtle bg-bg-base/90 px-3 text-[12px] text-text-tertiary shadow-sm backdrop-blur transition-colors hover:bg-bg-hover hover:text-text-primary"
+          title={locale === 'zh' ? '命令搜索' : 'Command Search'}
+        >
+          <Search size={14} />
+          <span className="truncate text-left">
+            {locale === 'zh' ? '命令搜索…' : 'Search commands…'}
+          </span>
+          <span className="ml-auto rounded border border-border-subtle px-1.5 py-[1px] text-[10px] text-text-tertiary">
+            {locale === 'zh' ? '⌘K' : 'Ctrl+K'}
+          </span>
+        </button>
+      </div>
       <div className="flex items-center gap-1">
-        <button onClick={toggleSidebar} className="p-1 hover:bg-bg-hover rounded text-text-secondary" title="Toggle Sidebar">
+        <button onClick={() => void runAppCommand('toggle-sidebar')} className="p-1 hover:bg-bg-hover rounded text-text-secondary" title="Toggle Sidebar">
           <PanelLeft size={16} />
         </button>
         
         <div className="h-4 w-px bg-border-subtle mx-2" />
 
-        <button onClick={createUntitledMarkdownFile} className="flex items-center gap-1.5 px-2 py-1 hover:bg-bg-hover rounded text-text-secondary text-xs">
+        <button onClick={() => void runAppCommand('new-file')} className="flex items-center gap-1.5 px-2 py-1 hover:bg-bg-hover rounded text-text-secondary text-xs">
           <FilePlus2 size={14} />
           {locale === 'zh' ? '新建' : 'New'}
         </button>
-        
-        <button onClick={handleOpenFolder} className="flex items-center gap-1.5 px-2 py-1 hover:bg-bg-hover rounded text-text-secondary text-xs">
-          <FolderOpen size={14} />
-          {locale === 'zh' ? '打开本地目录' : 'Open Folder'}
-        </button>
-        <button onClick={handleOpenFile} className="flex items-center gap-1.5 px-2 py-1 hover:bg-bg-hover rounded text-text-secondary text-xs">
-          <FileText size={14} />
-          {locale === 'zh' ? '打开文件' : 'Open File'}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('inkstack:toggle-toolbar-customize'))}
+          className="flex items-center gap-1.5 px-2 py-1 hover:bg-bg-hover rounded text-text-secondary text-xs"
+          title={locale === 'zh' ? '工具栏自定义' : 'Toolbar Customize'}
+        >
+          <Settings2 size={14} />
+          {locale === 'zh' ? '工具栏自定义' : 'Toolbar Customize'}
         </button>
 
         <button 
-          onClick={saveActiveFile} 
+          onClick={() => void runAppCommand('save')} 
           disabled={!isDirty || !activeFile || activeFile.readOnly || !activeFile.isMarkdown}
           className={cn(
             "flex items-center gap-1.5 px-2 py-1 rounded transition-colors ml-1",
@@ -80,25 +133,65 @@ export function Header() {
         >
           {locale === 'zh' ? '自动保存' : 'Auto Save'}
         </button>
+        {viewMode === 'split' && (
+          <button
+            onClick={() => setSplitScrollSync(!splitScrollSync)}
+            className={cn(
+              "ml-1 flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors",
+              splitScrollSync
+                ? "bg-accent/10 text-accent hover:bg-accent/20"
+                : "text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+            )}
+            title={splitScrollSync
+              ? (locale === 'zh' ? '分屏联动滚动：已开启' : 'Split scroll sync: On')
+              : (locale === 'zh' ? '分屏联动滚动：已关闭' : 'Split scroll sync: Off')}
+          >
+            <Link2 size={14} />
+            {locale === 'zh' ? '联动滚动' : 'Scroll Sync'}
+          </button>
+        )}
+        <button
+          onClick={() => setImageInsertMode(imageInsertMode === 'assets' ? 'embed' : 'assets')}
+          className="ml-1 flex items-center gap-1.5 rounded px-2 py-1 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+          title={locale === 'zh' ? '切换图片插入方式：插入链接 / 图片内嵌' : 'Toggle image mode: link insert / embedded image'}
+        >
+          <FileText size={14} />
+          {imageInsertMode === 'assets'
+            ? (locale === 'zh' ? '插入链接' : 'Link Insert')
+            : (locale === 'zh' ? '图片内嵌' : 'Image Embed')}
+        </button>
+        <button
+          onClick={() => void runAppCommand('find')}
+          className="ml-1 flex items-center gap-1.5 rounded px-2 py-1 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+          title={locale === 'zh' ? '文档内搜索' : 'Find in Document'}
+        >
+          <Search size={14} />
+          {locale === 'zh' ? '文档搜索' : 'Find'}
+        </button>
       </div>
 
       <div className="flex items-center gap-2">
         <div className="flex bg-bg-active rounded p-[2px] items-center text-text-secondary shadow-inner">
           <button 
-            onClick={() => setViewMode('edit')} 
+            onClick={() => void runAppCommand('view-edit')} 
             className={cn("w-6 h-6 flex items-center justify-center rounded-[4px] transition-all", viewMode === 'edit' ? "bg-bg-base text-text-primary shadow-sm border border-border-subtle" : "hover:text-text-primary hover:bg-bg-hover border border-transparent")}
             title="Edit Mode"
           ><PenLine size={13}/></button>
           <button 
-            onClick={() => setViewMode('split')}
+            onClick={() => void runAppCommand('view-split')}
             className={cn("w-6 h-6 flex items-center justify-center rounded-[4px] transition-all", viewMode === 'split' ? "bg-bg-base text-text-primary shadow-sm border border-border-subtle" : "hover:text-text-primary hover:bg-bg-hover border border-transparent")}
             title="Split Mode"
           ><LayoutList size={13}/></button>
           <button 
-            onClick={() => setViewMode('read')}
+            onClick={() => void runAppCommand('view-read')}
             className={cn("w-6 h-6 flex items-center justify-center rounded-[4px] transition-all", viewMode === 'read' ? "bg-bg-base text-text-primary shadow-sm border border-border-subtle" : "hover:text-text-primary hover:bg-bg-hover border border-transparent")}
             title="Read Mode"
           ><BookOpen size={13}/></button>
+          <button
+            onClick={() => void runAppCommand('view-code')}
+            className={cn("w-6 h-6 flex items-center justify-center rounded-[4px] transition-all", viewMode === 'code' ? "bg-bg-base text-text-primary shadow-sm border border-border-subtle" : "hover:text-text-primary hover:bg-bg-hover border border-transparent")}
+            title="Code Mode"
+          ><FileCode2 size={13}/></button>
         </div>
         <div className="relative">
           <button
@@ -112,85 +205,207 @@ export function Header() {
             <SlidersHorizontal size={16} />
           </button>
           {readingSettingsOpen && (
-            <div className="absolute right-0 top-8 z-50 w-72 rounded-md border border-border-subtle bg-bg-base p-3 text-text-secondary shadow-xl">
+            <div className="absolute right-0 top-8 z-50 w-[20rem] rounded-md border border-border-subtle bg-bg-base p-3 text-text-secondary shadow-xl">
               <div className="mb-3 flex items-center justify-between">
                 <span className="text-[12px] font-semibold text-text-primary">
                   {locale === 'zh' ? '阅读设置' : 'Reading Settings'}
                 </span>
                 <button
-                  onClick={resetReadingSettings}
+                  onClick={() => {
+                    if (settingsTarget === 'reading') resetReadingSettings();
+                    else resetEditorSettings();
+                  }}
                   className="rounded px-2 py-1 text-[11px] text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
                 >
                   {locale === 'zh' ? '重置' : 'Reset'}
                 </button>
               </div>
 
-              <ReadingSlider
-                label={locale === 'zh' ? '内容宽度' : 'Content Width'}
-                value={readingSettings.width}
-                min={680}
-                max={1280}
-                step={20}
-                suffix="px"
-                onChange={(width) => setReadingSettings({ width })}
-              />
-              <ReadingSlider
-                label={locale === 'zh' ? '字号' : 'Font Size'}
-                value={readingSettings.fontSize}
-                min={13}
-                max={20}
-                step={1}
-                suffix="px"
-                onChange={(fontSize) => setReadingSettings({ fontSize })}
-              />
-              <ReadingSlider
-                label={locale === 'zh' ? '行高' : 'Line Height'}
-                value={readingSettings.lineHeight}
-                min={1.35}
-                max={2.2}
-                step={0.05}
-                onChange={(lineHeight) => setReadingSettings({ lineHeight })}
-              />
-              <ReadingSlider
-                label={locale === 'zh' ? '段间距' : 'Paragraph Gap'}
-                value={readingSettings.paragraphSpacing}
-                min={0.6}
-                max={1.8}
-                step={0.05}
-                suffix="em"
-                onChange={(paragraphSpacing) => setReadingSettings({ paragraphSpacing })}
-              />
-
-              <div className="mt-3 flex rounded-md bg-bg-active p-0.5">
-                {(['sans', 'serif'] as ReadingFont[]).map((font) => (
-                  <button
-                    key={font}
-                    onClick={() => setReadingSettings({ font })}
-                    className={cn(
-                      "flex-1 rounded px-2 py-1.5 text-[12px] transition-colors",
-                      readingSettings.font === font ? "bg-bg-base text-text-primary shadow-sm" : "text-text-tertiary hover:text-text-primary"
-                    )}
-                  >
-                    {font === 'sans'
-                      ? (locale === 'zh' ? '无衬线' : 'Sans')
-                      : (locale === 'zh' ? '衬线' : 'Serif')}
-                  </button>
-                ))}
+              <div className="mb-3 grid grid-cols-2 gap-1 rounded-md bg-bg-active p-0.5">
+                <button
+                  onClick={() => setThemeMode('light')}
+                  className={cn(
+                    "flex items-center justify-center gap-1 rounded px-2 py-1.5 text-[12px] transition-colors",
+                    !isDarkMode ? "bg-bg-base text-text-primary shadow-sm" : "text-text-tertiary hover:text-text-primary"
+                  )}
+                >
+                  <Sun size={13} />
+                  {locale === 'zh' ? 'Light' : 'Light'}
+                </button>
+                <button
+                  onClick={() => setThemeMode('dark')}
+                  className={cn(
+                    "flex items-center justify-center gap-1 rounded px-2 py-1.5 text-[12px] transition-colors",
+                    isDarkMode ? "bg-bg-base text-text-primary shadow-sm" : "text-text-tertiary hover:text-text-primary"
+                  )}
+                >
+                  <Moon size={13} />
+                  {locale === 'zh' ? 'Dark' : 'Dark'}
+                </button>
               </div>
+              <label className="mb-3 block">
+                <div className="mb-1 flex items-center justify-between text-[11px] text-text-tertiary">
+                  <span>{locale === 'zh' ? '主题' : 'Theme'}</span>
+                  <span className="truncate text-[11px] text-text-secondary">
+                    {activeBuiltInTheme?.name ?? themeState.activeThemeId}
+                  </span>
+                </div>
+                <select
+                  value={themeState.activeThemeId}
+                  onChange={(event) => setActiveThemeId(event.target.value, '')}
+                  className="w-full rounded-md border border-border-subtle bg-bg-panel px-2.5 py-1.5 text-[12px] text-text-primary focus:border-accent focus:outline-none"
+                >
+                  {readingThemeOptions.map((theme) => (
+                    <option key={theme.id} value={theme.id}>{theme.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="mb-3 block">
+                <div className="mb-1 flex items-center justify-between text-[11px] text-text-tertiary">
+                  <span className="flex items-center gap-1">
+                    <Type size={12} />
+                    {locale === 'zh' ? '阅读字体（系统）' : 'Reading Font (System)'}
+                  </span>
+                  <span className="truncate text-[11px] text-text-secondary">
+                    {currentCustomFont || (locale === 'zh' ? '跟随主题' : 'Follow theme')}
+                  </span>
+                </div>
+                <select
+                  value={currentCustomFont}
+                  onChange={(event) => setReadingSettings({
+                    font: event.target.value ? `custom:${event.target.value}` : 'theme'
+                  })}
+                  className="w-full rounded-md border border-border-subtle bg-bg-panel px-2.5 py-1.5 text-[12px] text-text-primary focus:border-accent focus:outline-none"
+                >
+                  <option value="">{locale === 'zh' ? '跟随主题字体' : 'Follow theme font'}</option>
+                  {systemFonts.map((font) => (
+                    <option key={font} value={font}>{font}</option>
+                  ))}
+                </select>
+                {fontMessage && (
+                  <p className="mt-1 text-[10px] text-text-tertiary">{fontMessage}</p>
+                )}
+              </label>
+              <button
+                onClick={() => {
+                  void syncBuiltInThemesToThemeDir()
+                    .then(() => openImportedThemesDir())
+                    .then((path) => {
+                      void loadImportedThemes()
+                        .then((themes) => useStore.getState().setImportedThemes(themes))
+                        .catch((error) => console.error('Failed to refresh imported themes', error));
+                      setThemeFolderMessage(locale === 'zh' ? `已打开主题目录：${path}` : `Theme folder opened: ${path}`);
+                    })
+                    .catch((error) => {
+                      console.error('Failed to open theme folder', error);
+                      setThemeFolderMessage(error instanceof Error ? error.message : String(error));
+                    });
+                }}
+                className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-md border border-border-subtle bg-bg-panel px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+              >
+                <Folder size={13} />
+                {locale === 'zh' ? '打开主题目录' : 'Open Theme Folder'}
+              </button>
+              {themeFolderMessage && (
+                <p className="mb-2 text-[10px] leading-relaxed text-text-tertiary">{themeFolderMessage}</p>
+              )}
+              <div className="mb-3 grid grid-cols-2 gap-1 rounded-md bg-bg-active p-0.5">
+                <button
+                  onClick={() => setSettingsTarget('reading')}
+                  className={cn(
+                    "rounded px-2 py-1.5 text-[12px] transition-colors",
+                    settingsTarget === 'reading' ? "bg-bg-base text-text-primary shadow-sm" : "text-text-tertiary hover:text-text-primary"
+                  )}
+                >
+                  {locale === 'zh' ? '阅读区' : 'Reading'}
+                </button>
+                <button
+                  onClick={() => setSettingsTarget('editor')}
+                  className={cn(
+                    "rounded px-2 py-1.5 text-[12px] transition-colors",
+                    settingsTarget === 'editor' ? "bg-bg-base text-text-primary shadow-sm" : "text-text-tertiary hover:text-text-primary"
+                  )}
+                >
+                  {locale === 'zh' ? '编辑区' : 'Editor'}
+                </button>
+              </div>
+
+              {settingsTarget === 'reading' ? (
+                <>
+                  <ReadingSlider
+                    label={locale === 'zh' ? '内容宽度' : 'Content Width'}
+                    value={readingSettings.width}
+                    min={680}
+                    max={1280}
+                    step={20}
+                    suffix="px"
+                    onChange={(width) => setReadingSettings({ width })}
+                  />
+                  <ReadingSlider
+                    label={locale === 'zh' ? '字号' : 'Font Size'}
+                    value={readingSettings.fontSize}
+                    min={13}
+                    max={20}
+                    step={1}
+                    suffix="px"
+                    onChange={(fontSize) => setReadingSettings({ fontSize })}
+                  />
+                  <ReadingSlider
+                    label={locale === 'zh' ? '行高' : 'Line Height'}
+                    value={readingSettings.lineHeight}
+                    min={1.35}
+                    max={2.2}
+                    step={0.05}
+                    onChange={(lineHeight) => setReadingSettings({ lineHeight })}
+                  />
+                  <ReadingSlider
+                    label={locale === 'zh' ? '段间距' : 'Paragraph Gap'}
+                    value={readingSettings.paragraphSpacing}
+                    min={0.6}
+                    max={1.8}
+                    step={0.05}
+                    suffix="em"
+                    onChange={(paragraphSpacing) => setReadingSettings({ paragraphSpacing })}
+                  />
+                </>
+              ) : (
+                <>
+                  <ReadingSlider
+                    label={locale === 'zh' ? '编辑宽度' : 'Editor Width'}
+                    value={editorSettings.width}
+                    min={720}
+                    max={1560}
+                    step={20}
+                    suffix="px"
+                    onChange={(width) => setEditorSettings({ width })}
+                  />
+                  <ReadingSlider
+                    label={locale === 'zh' ? '编辑字号' : 'Editor Font Size'}
+                    value={editorSettings.fontSize}
+                    min={12}
+                    max={22}
+                    step={1}
+                    suffix="px"
+                    onChange={(fontSize) => setEditorSettings({ fontSize })}
+                  />
+                  <ReadingSlider
+                    label={locale === 'zh' ? '编辑行高' : 'Editor Line Height'}
+                    value={editorSettings.lineHeight}
+                    min={1.25}
+                    max={2.1}
+                    step={0.05}
+                    onChange={(lineHeight) => setEditorSettings({ lineHeight })}
+                  />
+                </>
+              )}
             </div>
           )}
         </div>
-
         <div className="h-4 w-px bg-border-subtle mx-2" />
 
-        <button onClick={toggleAiPanel} className="p-1 hover:bg-bg-hover rounded text-accent" title="AI Assistant">
+        <button onClick={() => void runAppCommand('toggle-ai')} className="p-1 hover:bg-bg-hover rounded text-accent" title="AI Assistant">
           <Sparkles size={16} />
-        </button>
-        <button onClick={openCommandPalette} className="p-1 hover:bg-bg-hover rounded text-text-secondary" title="Command Palette">
-          <Search size={16} />
-        </button>
-        <button onClick={toggleThemeMode} className="p-1 hover:bg-bg-hover rounded text-text-secondary" title="Toggle Theme">
-          {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
         </button>
         <button onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')} className="p-1 hover:bg-bg-hover rounded text-text-secondary flex items-center gap-1 text-[11px]" title="Switch Language">
           <Languages size={16} />
@@ -218,21 +433,27 @@ function ReadingSlider({
   suffix?: string;
   onChange: (value: number) => void;
 }) {
+  const progress = `${((value - min) / (max - min)) * 100}%`;
   return (
-    <label className="mb-2 block">
+    <label className="mb-2.5 block">
       <div className="mb-1 flex items-center justify-between text-[11px]">
         <span className="text-text-tertiary">{label}</span>
         <span className="font-mono text-text-secondary">{Number(value.toFixed(2))}{suffix}</span>
       </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full accent-[var(--color-accent)]"
-      />
+      <div className="relative pt-1">
+        <div className="pointer-events-none absolute left-0 right-0 top-[10px] h-1.5 rounded-full bg-bg-active">
+          <div className="h-full rounded-full bg-accent" style={{ width: progress }} />
+        </div>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(event) => onChange(Number(event.target.value))}
+          className="inkstack-reading-slider relative z-10 w-full"
+        />
+      </div>
     </label>
   );
 }

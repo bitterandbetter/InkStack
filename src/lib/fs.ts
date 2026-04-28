@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './tauriRuntime';
 
 export interface FileNode {
   name: string;
@@ -33,11 +33,18 @@ export interface ReadFileResult {
 
 export interface AppSettings {
   recentWorkspaces: string[];
+  recentWorkspaceEntries: RecentEntryMeta[];
   recentFiles: string[];
+  recentFileEntries: RecentEntryMeta[];
   pinnedWorkspaces: string[];
   pinnedFiles: string[];
   lastWorkspace: string | null;
   lastFile: string | null;
+}
+
+export interface RecentEntryMeta {
+  path: string;
+  openedAt: number;
 }
 
 export interface MarkdownSearchResult {
@@ -51,11 +58,18 @@ export interface MarkdownSearchResult {
 
 interface TauriAppSettings {
   recent_workspaces?: string[];
+  recent_workspace_entries?: TauriRecentEntryMeta[];
   recent_files?: string[];
+  recent_file_entries?: TauriRecentEntryMeta[];
   pinned_workspaces?: string[];
   pinned_files?: string[];
   last_workspace?: string | null;
   last_file?: string | null;
+}
+
+interface TauriRecentEntryMeta {
+  path: string;
+  opened_at: number;
 }
 
 interface TauriFileEntry {
@@ -131,6 +145,15 @@ interface TauriImportedMarkdownAsset {
   relative_src: string;
 }
 
+interface TauriPickedMarkdownAsset {
+  source_path: string;
+  path: string;
+  relative_src: string;
+  markdown_src: string;
+  file_name: string;
+  is_image: boolean;
+}
+
 function mapMetadata(metadata: TauriFileMetadata): FileMetadata {
   return {
     modifiedAt: metadata.modified_at,
@@ -189,7 +212,9 @@ function normalizeFileKind(value: string): FileKind {
 function mapSettings(settings: TauriAppSettings): AppSettings {
   return {
     recentWorkspaces: settings.recent_workspaces ?? [],
+    recentWorkspaceEntries: (settings.recent_workspace_entries ?? []).map(mapRecentEntryMeta),
     recentFiles: settings.recent_files ?? [],
+    recentFileEntries: (settings.recent_file_entries ?? []).map(mapRecentEntryMeta),
     pinnedWorkspaces: settings.pinned_workspaces ?? [],
     pinnedFiles: settings.pinned_files ?? [],
     lastWorkspace: settings.last_workspace ?? null,
@@ -200,11 +225,27 @@ function mapSettings(settings: TauriAppSettings): AppSettings {
 function unmapSettings(settings: AppSettings): TauriAppSettings {
   return {
     recent_workspaces: settings.recentWorkspaces,
+    recent_workspace_entries: settings.recentWorkspaceEntries.map(unmapRecentEntryMeta),
     recent_files: settings.recentFiles,
+    recent_file_entries: settings.recentFileEntries.map(unmapRecentEntryMeta),
     pinned_workspaces: settings.pinnedWorkspaces,
     pinned_files: settings.pinnedFiles,
     last_workspace: settings.lastWorkspace,
     last_file: settings.lastFile
+  };
+}
+
+function mapRecentEntryMeta(entry: TauriRecentEntryMeta): RecentEntryMeta {
+  return {
+    path: entry.path,
+    openedAt: entry.opened_at
+  };
+}
+
+function unmapRecentEntryMeta(entry: RecentEntryMeta): TauriRecentEntryMeta {
+  return {
+    path: entry.path,
+    opened_at: entry.openedAt
   };
 }
 
@@ -327,16 +368,44 @@ export async function resolveMarkdownAsset(documentPath: string, assetSrc: strin
   return result.path;
 }
 
-export async function importMarkdownAsset(documentPath: string, sourcePath: string): Promise<{ path: string; relativeSrc: string }> {
+export async function importMarkdownAsset(
+  documentPath: string,
+  sourcePath: string,
+  mode: 'assets' | 'embed' = 'assets'
+): Promise<{ path: string; relativeSrc: string }> {
   const result = await invoke<TauriImportedMarkdownAsset>('import_markdown_asset', {
     request: {
       document_path: documentPath,
-      source_path: sourcePath
+      source_path: sourcePath,
+      kind: 'image',
+      mode
     }
   });
   return {
     path: result.path,
     relativeSrc: result.relative_src
+  };
+}
+
+export async function pickAndImportMarkdownAsset(
+  documentPath: string,
+  kind: 'image' | 'attachment',
+  mode?: 'assets' | 'embed'
+): Promise<{ sourcePath: string; path: string; relativeSrc: string; markdownSrc: string; fileName: string; isImage: boolean } | null> {
+  const result = await invoke<TauriPickedMarkdownAsset | null>('pick_and_import_markdown_asset', {
+    documentPath,
+    kind,
+    mode: mode ?? 'assets'
+  });
+  if (!result) return null;
+
+  return {
+    sourcePath: result.source_path,
+    path: result.path,
+    relativeSrc: result.relative_src,
+    markdownSrc: result.markdown_src,
+    fileName: result.file_name,
+    isImage: result.is_image
   };
 }
 
@@ -387,4 +456,8 @@ export async function getMarkdownFileMetadata(path: string): Promise<FileMetadat
 
 export async function revealMarkdownFile(path: string): Promise<void> {
   await invoke('reveal_markdown_file', { path });
+}
+
+export async function showDesktopNotification(title: string, body: string): Promise<void> {
+  await invoke('show_desktop_notification', { title, body });
 }

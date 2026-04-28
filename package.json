@@ -1,17 +1,23 @@
 {
   "name": "inkstack",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.3",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev": "vite --port=1420 --host=127.0.0.1 --strictPort",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "test:markdown": "tsx scripts/check_markdown_regression.ts",
+    "test:markdown:visual": "tsx scripts/check_markdown_visual.ts",
+    "test:tauri:visual": "bash scripts/capture_tauri_visual.sh",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:fix-macos": "bash scripts/fix_macos_bundle.sh",
+    "tauri:check-macos": "bash scripts/check_macos_release.sh",
+    "tauri:build:mac": "npm run tauri:build && npm run tauri:fix-macos"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.5.0",

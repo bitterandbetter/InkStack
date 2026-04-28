@@ -1,13 +1,14 @@
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { UnlistenFn } from '@tauri-apps/api/event';
+import { invoke, listen } from './tauriRuntime';
 
-export type AiProviderKind = 'openai' | 'anthropic' | 'gemini';
+export type AiProviderKind = 'openai' | 'anthropic' | 'gemini' | 'nvidia';
 
 export interface AiProviderPreset {
   id: AiProviderKind;
   name: string;
   model: string;
-  baseUrlLabel: string;
+  baseUrlLabel?: string;
+  fixedBaseUrl?: string;
   apiKeyEnv: string;
   modelEnv: string;
   models: AiModelOption[];
@@ -127,7 +128,7 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
     id: 'gemini',
     name: 'AICodeMirror Gemini',
     model: 'gemini-3.1-pro-preview',
-    baseUrlLabel: 'GEMINI_BASE_URL',
+    fixedBaseUrl: 'https://api.aicodemirror.com/api/gemini',
     apiKeyEnv: 'GEMINI_API_KEY',
     modelEnv: 'GEMINI_MODEL',
     models: [
@@ -139,6 +140,29 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
       { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
       { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
       { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite' }
+    ]
+  },
+  {
+    id: 'nvidia',
+    name: 'NVIDIA NIM',
+    model: 'meta/llama-3.1-8b-instruct',
+    baseUrlLabel: 'NVIDIA_BASE_URL',
+    apiKeyEnv: 'NVIDIA_API_KEY',
+    modelEnv: 'NVIDIA_MODEL',
+    models: [
+      { id: '', name: '读取 NVIDIA_MODEL' },
+      { id: 'meta/llama-3.1-8b-instruct', name: 'Meta Llama 3.1 8B Instruct', note: '已验证可用' },
+      { id: 'nvidia/llama-3.1-nemotron-ultra-253b-v1', name: 'Llama 3.1 Nemotron Ultra 253B' },
+      { id: 'nvidia/llama-3.1-nemotron-70b-instruct', name: 'Llama 3.1 Nemotron 70B Instruct' },
+      { id: 'nvidia/llama-3.1-nemotron-51b-instruct', name: 'Llama 3.1 Nemotron 51B Instruct' },
+      { id: 'nvidia/llama-3.1-nemotron-nano-8b-v1', name: 'Llama 3.1 Nemotron Nano 8B' },
+      { id: 'meta/llama-3.1-405b-instruct', name: 'Meta Llama 3.1 405B Instruct' },
+      { id: 'meta/llama-3.1-70b-instruct', name: 'Meta Llama 3.1 70B Instruct' },
+      { id: 'openai/gpt-oss-120b', name: 'OpenAI GPT-OSS 120B' },
+      { id: 'z-ai/glm-5.1', name: 'Z.ai GLM-5.1' },
+      { id: 'moonshotai/kimi-k2.5', name: 'MoonshotAI Kimi K2.5' },
+      { id: 'qwen/qwen3-next-80b-a3b-instruct', name: 'Qwen3 Next 80B A3B Instruct' },
+      { id: 'deepseek-ai/deepseek-r1', name: 'DeepSeek R1' }
     ]
   }
 ];

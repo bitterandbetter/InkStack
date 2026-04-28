@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './tauriRuntime';
 
 export async function saveExportFile(
   suggestedName: string,

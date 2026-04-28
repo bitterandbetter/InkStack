@@ -5,13 +5,16 @@ export function PreviewHeading({
   level,
   headings,
   children,
+  sourceLine,
   ...props
 }: React.HTMLAttributes<HTMLHeadingElement> & {
   level: 1 | 2 | 3 | 4 | 5 | 6;
   headings: HeadingEntry[];
+  sourceLine?: number;
 }) {
   const text = childrenToPlainText(children);
-  const slug = headings.find((heading) => heading.level === level && heading.text === text)?.slug
+  const slug = headings.find((heading) => heading.line === sourceLine && heading.level === level)?.slug
+    ?? headings.find((heading) => heading.level === level && heading.text === text)?.slug
     ?? slugifyHeading(text);
   const Tag = `h${level}` as ElementType;
 

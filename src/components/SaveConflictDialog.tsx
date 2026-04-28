@@ -39,6 +39,22 @@ export function SaveConflictDialog() {
         </div>
 
         <div className="space-y-2 px-4 py-3">
+          <div className="rounded-md border border-border-subtle bg-bg-panel/70 px-3 py-2 text-[12px] leading-relaxed text-text-secondary">
+            <div className="font-medium text-text-primary">
+              {locale === 'zh' ? '建议处理顺序' : 'Recommended recovery'}
+            </div>
+            <div className="mt-1 text-[11px] text-text-tertiary">
+              {locale === 'zh'
+                ? '如果外部修改更重要，先重新加载磁盘版本；如果当前编辑更重要，先另存为副本，再手动合并两份内容。'
+                : 'Reload from disk if the external edits matter more. Save a copy if your current edits matter more, then merge the two versions manually.'}
+            </div>
+            {saveConflict.message && (
+              <div className="mt-2 rounded bg-bg-base px-2 py-1 font-mono text-[10px] text-text-tertiary">
+                {saveConflict.message}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={() => void handleReload()}
             className="flex w-full items-center gap-3 rounded-md border border-border-subtle bg-bg-panel px-3 py-2 text-left text-[13px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
