@@ -66,8 +66,8 @@ const SESSION_CONFIG_KEY = 'inkstack.ai.config.v2';
 export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
   {
     id: 'openai',
-    name: 'AICodeMirror OpenAI',
-    model: 'gpt-5.5',
+    name: 'OpenAI-compatible',
+    model: 'gpt-4.1',
     baseUrlLabel: 'OPENAI_BASE_URL',
     apiKeyEnv: 'OPENAI_API_KEY',
     modelEnv: 'OPENAI_MODEL',
@@ -99,8 +99,8 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
   },
   {
     id: 'anthropic',
-    name: 'AICodeMirror Claude',
-    model: 'claude-opus-4-7',
+    name: 'Anthropic Claude',
+    model: 'claude-sonnet-4-20250514',
     baseUrlLabel: 'ANTHROPIC_BASE_URL',
     apiKeyEnv: 'ANTHROPIC_API_KEY',
     modelEnv: 'ANTHROPIC_MODEL',
@@ -125,8 +125,8 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
   },
   {
     id: 'gemini',
-    name: 'AICodeMirror Gemini',
-    model: 'gemini-3.1-pro-preview',
+    name: 'Google Gemini',
+    model: 'gemini-2.5-pro',
     baseUrlLabel: 'GEMINI_BASE_URL',
     apiKeyEnv: 'GEMINI_API_KEY',
     modelEnv: 'GEMINI_MODEL',
@@ -145,9 +145,9 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
 
 export const DEFAULT_AI_CONFIG: AiConfig = {
   providerId: 'openai',
-  providerName: 'AICodeMirror OpenAI',
+  providerName: 'OpenAI-compatible',
   kind: 'openai',
-  model: 'gpt-5.5',
+  model: 'gpt-4.1',
   temperature: 0.4
 };
 
