@@ -101,7 +101,6 @@ pub async fn prune_missing_recent_entries(app: tauri::AppHandle) -> Result<AppSe
     update_settings(app, settings).await
 }
 
-
 #[tauri::command]
 pub async fn generate_ai_text(request: AiGenerateRequest) -> Result<AiGenerateResult, String> {
     let request = normalize_ai_request(request)?;
@@ -2031,12 +2030,9 @@ struct AiStreamSpec {
 fn build_ai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {
     match request.kind.as_str() {
         "openai" => {
-            let base_url = env_or_default(
-                "OPENAI_BASE_URL",
-                "https://api.aicodemirror.com/api/codex/backend-api/codex/v1",
-            );
+            let base_url = env_or_default("OPENAI_BASE_URL", "https://api.openai.com/v1");
             let api_key = required_env("OPENAI_API_KEY")?;
-            let model = request_model_or_env(request, "OPENAI_MODEL", "gpt-5.5");
+            let model = request_model_or_env(request, "OPENAI_MODEL", "gpt-4.1");
             let use_responses = openai_prefers_responses_api(&model);
             let url = if use_responses {
                 format!("{}/responses", base_url.trim_end_matches('/'))
@@ -2063,12 +2059,10 @@ fn build_ai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, Str
             })
         }
         "anthropic" => {
-            let base_url = env_or_default(
-                "ANTHROPIC_BASE_URL",
-                "https://api.aicodemirror.com/api/claudecode",
-            );
+            let base_url = env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1");
             let api_key = required_env("ANTHROPIC_API_KEY")?;
-            let model = request_model_or_env(request, "ANTHROPIC_MODEL", "claude-opus-4-7");
+            let model =
+                request_model_or_env(request, "ANTHROPIC_MODEL", "claude-sonnet-4-20250514");
             let body = serde_json::json!({
                 "model": model,
                 "system": build_ai_system_prompt(),
@@ -2097,10 +2091,12 @@ fn build_ai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, Str
             })
         }
         "gemini" => {
-            let base_url =
-                env_or_default("GEMINI_BASE_URL", "https://api.aicodemirror.com/api/gemini");
+            let base_url = env_or_default(
+                "GEMINI_BASE_URL",
+                "https://generativelanguage.googleapis.com",
+            );
             let api_key = required_env("GEMINI_API_KEY")?;
-            let model = request_model_or_env(request, "GEMINI_MODEL", "gemini-3.1-pro-preview");
+            let model = request_model_or_env(request, "GEMINI_MODEL", "gemini-2.5-pro");
             let body = serde_json::json!({
                 "systemInstruction": {
                     "parts": [{ "text": build_ai_system_prompt() }]
@@ -2137,12 +2133,9 @@ fn build_ai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, Str
 }
 
 async fn request_openai_compatible(request: AiGenerateRequest) -> Result<AiGenerateResult, String> {
-    let base_url = env_or_default(
-        "OPENAI_BASE_URL",
-        "https://api.aicodemirror.com/api/codex/backend-api/codex/v1",
-    );
+    let base_url = env_or_default("OPENAI_BASE_URL", "https://api.openai.com/v1");
     let api_key = required_env("OPENAI_API_KEY")?;
-    let model = request_model_or_env(&request, "OPENAI_MODEL", "gpt-5.5");
+    let model = request_model_or_env(&request, "OPENAI_MODEL", "gpt-4.1");
     let use_responses = openai_prefers_responses_api(&model);
     let url = if use_responses {
         format!("{}/responses", base_url.trim_end_matches('/'))
@@ -2191,12 +2184,9 @@ async fn request_openai_compatible(request: AiGenerateRequest) -> Result<AiGener
 }
 
 async fn request_anthropic(request: AiGenerateRequest) -> Result<AiGenerateResult, String> {
-    let base_url = env_or_default(
-        "ANTHROPIC_BASE_URL",
-        "https://api.aicodemirror.com/api/claudecode",
-    );
+    let base_url = env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1");
     let api_key = required_env("ANTHROPIC_API_KEY")?;
-    let model = request_model_or_env(&request, "ANTHROPIC_MODEL", "claude-opus-4-7");
+    let model = request_model_or_env(&request, "ANTHROPIC_MODEL", "claude-sonnet-4-20250514");
     let url = format!("{}/messages", base_url.trim_end_matches('/'));
     let body = serde_json::json!({
         "model": model,
@@ -2258,9 +2248,12 @@ async fn request_anthropic(request: AiGenerateRequest) -> Result<AiGenerateResul
 }
 
 async fn request_gemini(request: AiGenerateRequest) -> Result<AiGenerateResult, String> {
-    let base_url = env_or_default("GEMINI_BASE_URL", "https://api.aicodemirror.com/api/gemini");
+    let base_url = env_or_default(
+        "GEMINI_BASE_URL",
+        "https://generativelanguage.googleapis.com",
+    );
     let api_key = required_env("GEMINI_API_KEY")?;
-    let model = request_model_or_env(&request, "GEMINI_MODEL", "gemini-3.1-pro-preview");
+    let model = request_model_or_env(&request, "GEMINI_MODEL", "gemini-2.5-pro");
     let url = format!(
         "{}/v1beta/models/{}:generateContent",
         base_url.trim_end_matches('/'),

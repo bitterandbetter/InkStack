@@ -3,6 +3,7 @@ name = "inkstack"
 version = "0.1.0"
 description = "A local-first AI-native Markdown editor for macOS"
 authors = ["InkStack"]
+license = "GPL-3.0-only"
 edition = "2021"
 rust-version = "1.77"
 
