@@ -27,7 +27,7 @@
     "katex": "^0.16.45",
     "lucide-react": "^0.546.0",
     "mermaid": "11.16.0",
-    "react": "^19.0.0",
+    "react": "^19.2.8",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "rehype-katex": "^7.0.1",
