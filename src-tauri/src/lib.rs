@@ -1,5 +1,5 @@
-mod ai_config;
 mod ai_commands;
+mod ai_config;
 mod ai_providers;
 mod app_settings;
 mod asset_commands;
@@ -10,6 +10,8 @@ mod notification_commands;
 mod save_commands;
 mod theme_commands;
 mod workspace_commands;
+mod workspace_index;
+mod workspace_index_store;
 mod workspace_search;
 
 use std::{
@@ -35,6 +37,8 @@ pub struct AppState {
     startup_markdown_paths: Mutex<Vec<String>>,
     // AI streams are keyed by a frontend request id so a cancel button can stop the curl process.
     ai_streams: Mutex<HashMap<String, AiStreamControl>>,
+    // Stage 2 knowledge index stays in memory for now and can be rebuilt from the workspace tree.
+    workspace_index: Mutex<Option<workspace_index::WorkspaceKnowledgeIndex>>,
 }
 
 pub struct AiStreamControl {
@@ -45,6 +49,18 @@ pub struct AiStreamControl {
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+fn confirm_close_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
+fn minimize_window(app: tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.minimize();
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -147,6 +163,18 @@ pub fn run() {
                 .item(&MenuItemBuilder::with_id("history-back", "后退").build(app)?)
                 .item(&MenuItemBuilder::with_id("history-forward", "前进").build(app)?)
                 .build()?;
+            let window_menu = SubmenuBuilder::new(app, "窗口")
+                .item(
+                    &MenuItemBuilder::with_id("minimize-window", "最小化")
+                        .accelerator("CmdOrCtrl+M")
+                        .build(app)?,
+                )
+                .item(
+                    &MenuItemBuilder::with_id("close-window", "关闭窗口")
+                        .accelerator("CmdOrCtrl+W")
+                        .build(app)?,
+                )
+                .build()?;
             let ai = SubmenuBuilder::new(app, "AI")
                 .item(&MenuItemBuilder::with_id("ai-chat", "AI 对话").build(app)?)
                 .item(&MenuItemBuilder::with_id("ai-outline", "智能大纲").build(app)?)
@@ -160,16 +188,44 @@ pub fn run() {
                 .item(&edit)
                 .item(&view)
                 .item(&navigate)
+                .item(&window_menu)
                 .item(&ai)
                 .build()
         })
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "new-file" | "open-file" | "open-workspace" | "save" | "save-as" | "reveal-file"
-            | "quit-app" | "find" | "open-command-palette" | "view-split" | "view-edit"
-            | "view-read" | "view-code" | "toggle-sidebar" | "toggle-ai" | "theme-toggle"
-            | "history-back" | "history-forward" | "ai-chat" | "ai-outline" | "ai-code"
+            "new-file"
+            | "open-file"
+            | "open-workspace"
+            | "save"
+            | "save-as"
+            | "reveal-file"
+            | "quit-app"
+            | "find"
+            | "open-command-palette"
+            | "view-split"
+            | "view-edit"
+            | "view-read"
+            | "view-code"
+            | "toggle-sidebar"
+            | "toggle-ai"
+            | "theme-toggle"
+            | "history-back"
+            | "history-forward"
+            | "ai-chat"
+            | "ai-outline"
+            | "ai-code"
             | "ai-settings" => {
                 let _ = app.emit("inkstack://menu", event.id().as_ref());
+            }
+            "close-window" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("close-confirmed", ());
+                }
+            }
+            "minimize-window" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.minimize();
+                }
             }
             _ => {}
         })
@@ -182,6 +238,19 @@ pub fn run() {
         .setup(|app| {
             let paths = markdown_args_from_argv(&std::env::args().collect::<Vec<_>>());
             emit_markdown_paths(app.handle(), paths);
+            
+            // Handle window close event
+            let app_handle = app.handle().clone();
+            if let Some(window) = app.get_webview_window("main") {
+                let app_handle_clone = app_handle.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = app_handle_clone.emit("close-confirmed", ());
+                    }
+                });
+            }
+            
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -189,6 +258,8 @@ pub fn run() {
             app_settings::update_settings,
             app_settings::prune_missing_recent_entries,
             quit_app,
+            confirm_close_app,
+            minimize_window,
             ai_commands::generate_ai_text,
             ai_commands::generate_ai_text_stream,
             ai_commands::cancel_ai_stream,
@@ -214,6 +285,20 @@ pub fn run() {
             workspace_commands::delete_workspace_entry,
             workspace_search::search_markdown_files,
             workspace_search::search_text_files,
+            workspace_index::rebuild_workspace_index,
+            workspace_index::refresh_workspace_index,
+            workspace_index::refresh_workspace_index_document,
+            workspace_index::search_knowledge_blocks,
+            workspace_index::search_knowledge_documents,
+            workspace_index::get_document_knowledge,
+            workspace_index::get_backlinks,
+            workspace_index::get_unlinked_mentions,
+            workspace_index::get_workspace_tags,
+            workspace_index::get_unresolved_links,
+            workspace_index::get_isolated_documents,
+            workspace_index::get_isolated_document_suggestions,
+            workspace_index::get_workspace_knowledge_graph,
+            workspace_index::get_workspace_knowledge_overview,
             file_commands::read_markdown_file,
             file_commands::read_text_file,
             asset_commands::resolve_markdown_asset,

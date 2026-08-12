@@ -8,7 +8,9 @@ use crate::file_commands::{
     sanitize_asset_file_name, unique_child_path,
 };
 use crate::file_kinds::is_supported_image_path;
-use crate::models::{ImportMarkdownAssetRequest, ImportedMarkdownAsset, MarkdownAsset, PickedMarkdownAsset};
+use crate::models::{
+    ImportMarkdownAssetRequest, ImportedMarkdownAsset, MarkdownAsset, PickedMarkdownAsset,
+};
 use crate::AppState;
 
 #[tauri::command]
@@ -56,9 +58,10 @@ pub async fn pick_and_import_markdown_asset(
     let document_path = resolve_readable_markdown_path(&document_path, &state)?;
     let mut dialog = app.dialog().file();
     dialog = if kind == "image" {
-        dialog
-            .set_title("选择图片")
-            .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"])
+        dialog.set_title("选择图片").add_filter(
+            "Images",
+            &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"],
+        )
     } else {
         dialog.set_title("选择附件")
     };
@@ -130,8 +133,12 @@ async fn import_asset_file(
     })
 }
 
-async fn import_asset_file_as_data_url(source_path: &Path) -> Result<ImportedMarkdownAsset, String> {
-    let bytes = tokio::fs::read(source_path).await.map_err(|error| error.to_string())?;
+async fn import_asset_file_as_data_url(
+    source_path: &Path,
+) -> Result<ImportedMarkdownAsset, String> {
+    let bytes = tokio::fs::read(source_path)
+        .await
+        .map_err(|error| error.to_string())?;
     let extension = source_path
         .extension()
         .and_then(|value| value.to_str())
@@ -147,7 +154,11 @@ async fn import_asset_file_as_data_url(source_path: &Path) -> Result<ImportedMar
         "avif" => "image/avif",
         _ => return Err("Unsupported image extension".to_string()),
     };
-    let data_url = format!("data:{};base64,{}", mime, base64::engine::general_purpose::STANDARD.encode(bytes));
+    let data_url = format!(
+        "data:{};base64,{}",
+        mime,
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    );
 
     Ok(ImportedMarkdownAsset {
         path: source_path.to_string_lossy().to_string(),

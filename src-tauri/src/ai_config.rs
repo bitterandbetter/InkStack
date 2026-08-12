@@ -1,5 +1,10 @@
 use crate::models::AiGenerateRequest;
 
+pub const DEFAULT_OPENAI_MODEL: &str = "gpt-4o-mini";
+pub const DEFAULT_ANTHROPIC_MODEL: &str = "claude-3-5-sonnet-latest";
+pub const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-flash";
+pub const DEFAULT_NVIDIA_MODEL: &str = "meta/llama-3.1-8b-instruct";
+
 pub fn openai_prefers_responses_api(model: &str) -> bool {
     model == "gpt-5.4-pro"
 }

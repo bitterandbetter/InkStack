@@ -5,7 +5,8 @@ use std::{
 
 use crate::ai_config::{
     env_or_default, openai_prefers_responses_api, request_model_or_env, required_env,
-    supports_temperature, system_prompt_from_env,
+    supports_temperature, system_prompt_from_env, DEFAULT_ANTHROPIC_MODEL, DEFAULT_GEMINI_MODEL,
+    DEFAULT_NVIDIA_MODEL, DEFAULT_OPENAI_MODEL,
 };
 use crate::models::{AiGenerateRequest, AiGenerateResult};
 
@@ -43,7 +44,7 @@ pub async fn request_openai_compatible(
         "https://api.aicodemirror.com/api/codex/backend-api/codex/v1",
     );
     let api_key = required_env("OPENAI_API_KEY")?;
-    let model = request_model_or_env(&request, "OPENAI_MODEL", "gpt-5.5");
+    let model = request_model_or_env(&request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL);
     let use_responses = openai_prefers_responses_api(&model);
     let url = if use_responses {
         format!("{}/responses", base_url.trim_end_matches('/'))
@@ -96,11 +97,7 @@ pub async fn request_nvidia_compatible(
 ) -> Result<AiGenerateResult, String> {
     let base_url = env_or_default("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1");
     let api_key = required_env("NVIDIA_API_KEY")?;
-    let model = request_model_or_env(
-        &request,
-        "NVIDIA_MODEL",
-        "meta/llama-3.1-8b-instruct",
-    );
+    let model = request_model_or_env(&request, "NVIDIA_MODEL", DEFAULT_NVIDIA_MODEL);
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let body = build_openai_body(&request, &model, false);
     let body = serde_json::to_string(&body).map_err(|error| error.to_string())?;
@@ -144,7 +141,7 @@ pub async fn request_anthropic(request: AiGenerateRequest) -> Result<AiGenerateR
         "https://api.aicodemirror.com/api/claudecode",
     );
     let api_key = required_env("ANTHROPIC_API_KEY")?;
-    let model = request_model_or_env(&request, "ANTHROPIC_MODEL", "claude-opus-4-7");
+    let model = request_model_or_env(&request, "ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL);
     let url = anthropic_messages_url(&base_url);
     let body = build_anthropic_body(&request, &model, false)?;
 
@@ -195,7 +192,7 @@ pub async fn request_anthropic(request: AiGenerateRequest) -> Result<AiGenerateR
 
 pub async fn request_gemini(request: AiGenerateRequest) -> Result<AiGenerateResult, String> {
     let api_key = required_env("GEMINI_API_KEY")?;
-    let model = request_model_or_env(&request, "GEMINI_MODEL", "gemini-3.1-pro-preview");
+    let model = request_model_or_env(&request, "GEMINI_MODEL", DEFAULT_GEMINI_MODEL);
     let url = format!(
         "{}/v1beta/models/{}:generateContent",
         gemini_base_url(),
@@ -292,7 +289,7 @@ fn build_openai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec,
         "https://api.aicodemirror.com/api/codex/backend-api/codex/v1",
     );
     let api_key = required_env("OPENAI_API_KEY")?;
-    let model = request_model_or_env(request, "OPENAI_MODEL", "gpt-5.5");
+    let model = request_model_or_env(request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL);
     let use_responses = openai_prefers_responses_api(&model);
     let url = if use_responses {
         format!("{}/responses", base_url.trim_end_matches('/'))
@@ -325,7 +322,7 @@ fn build_anthropic_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSp
         "https://api.aicodemirror.com/api/claudecode",
     );
     let api_key = required_env("ANTHROPIC_API_KEY")?;
-    let model = request_model_or_env(request, "ANTHROPIC_MODEL", "claude-opus-4-7");
+    let model = request_model_or_env(request, "ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL);
     let body = build_anthropic_body(request, &model, true)?;
 
     Ok(AiStreamSpec {
@@ -355,7 +352,7 @@ fn anthropic_messages_url(base_url: &str) -> String {
 
 fn build_gemini_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {
     let api_key = required_env("GEMINI_API_KEY")?;
-    let model = request_model_or_env(request, "GEMINI_MODEL", "gemini-3.1-pro-preview");
+    let model = request_model_or_env(request, "GEMINI_MODEL", DEFAULT_GEMINI_MODEL);
     let body = build_gemini_body(request, &model, true)?;
 
     Ok(AiStreamSpec {
@@ -384,11 +381,7 @@ fn gemini_base_url() -> &'static str {
 fn build_nvidia_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {
     let base_url = env_or_default("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1");
     let api_key = required_env("NVIDIA_API_KEY")?;
-    let model = request_model_or_env(
-        request,
-        "NVIDIA_MODEL",
-        "meta/llama-3.1-8b-instruct",
-    );
+    let model = request_model_or_env(request, "NVIDIA_MODEL", DEFAULT_NVIDIA_MODEL);
     let mut body = build_openai_body(request, &model, false);
     body["stream"] = serde_json::json!(true);
 

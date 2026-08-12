@@ -7,9 +7,15 @@ use std::{
     },
 };
 
+#[cfg(target_family = "unix")]
+use std::os::unix::process::CommandExt;
+
 use tauri::{Emitter, Manager};
 
-use crate::ai_config::request_model_or_env;
+use crate::ai_config::{
+    request_model_or_env, DEFAULT_ANTHROPIC_MODEL, DEFAULT_GEMINI_MODEL, DEFAULT_NVIDIA_MODEL,
+    DEFAULT_OPENAI_MODEL,
+};
 use crate::ai_providers::{
     build_ai_stream_spec, extract_stream_delta, request_anthropic, request_gemini,
     request_nvidia_compatible, request_openai_compatible, AiStreamSpec,
@@ -130,14 +136,10 @@ pub async fn test_ai_model(request: AiGenerateRequest) -> Result<AiModelTestResu
 
     let provider = request.kind.clone();
     let requested_model = match request.kind.as_str() {
-        "openai" => request_model_or_env(&request, "OPENAI_MODEL", "gpt-5.5"),
-        "anthropic" => request_model_or_env(&request, "ANTHROPIC_MODEL", "claude-opus-4-7"),
-        "gemini" => request_model_or_env(&request, "GEMINI_MODEL", "gemini-3.1-pro-preview"),
-        "nvidia" => request_model_or_env(
-            &request,
-            "NVIDIA_MODEL",
-            "meta/llama-3.1-8b-instruct",
-        ),
+        "openai" => request_model_or_env(&request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
+        "anthropic" => request_model_or_env(&request, "ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL),
+        "gemini" => request_model_or_env(&request, "GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
+        "nvidia" => request_model_or_env(&request, "NVIDIA_MODEL", DEFAULT_NVIDIA_MODEL),
         _ => return Err("Unsupported AI provider kind".to_string()),
     };
 
@@ -146,7 +148,7 @@ pub async fn test_ai_model(request: AiGenerateRequest) -> Result<AiModelTestResu
         "anthropic" => request_anthropic(request).await,
         "gemini" => request_gemini(request).await,
         "nvidia" => request_nvidia_compatible(request).await,
-        _ => unreachable!(),
+        _ => return Err("Unsupported AI provider kind".to_string()),
     };
 
     Ok(match result {
@@ -206,12 +208,17 @@ fn stream_ai_with_curl(
         command.arg("-H").arg(format!("{name}: {value}"));
     }
 
-    let mut child = command
+    let child = command
         .arg("--data-binary")
         .arg("@-")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(target_family = "unix")]
+    child.process_group(0);
+
+    let mut child = child
         .spawn()
         .map_err(|error| format!("无法启动 curl：{error}"))?;
 
@@ -348,7 +355,7 @@ fn terminate_process(pid: Option<u32>) {
     {
         let _ = Command::new("kill")
             .arg("-TERM")
-            .arg(pid.to_string())
+            .arg(format!("-{}", pid))
             .status();
     }
 

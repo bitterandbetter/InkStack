@@ -12,18 +12,25 @@ import { StatusBar } from "./components/StatusBar";
 import { UnsavedChangesDialog } from "./components/UnsavedChangesDialog";
 import { SaveConflictDialog } from "./components/SaveConflictDialog";
 import { AiContextDialog } from "./components/AiContextDialog";
+import { CloseConfirmDialog } from "./components/CloseConfirmDialog";
+import { ToastProvider, useToast } from "./components/Toast";
+import { setToastRef } from "./lib/export";
 import { useDesktopEvents } from "./hooks/useDesktopEvents";
+import { useShortcuts } from "./lib/hooks/useShortcuts";
 import { lazy, Suspense, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useStore } from "./store";
 import { getCurrentWindow, isTauriRuntime } from "./lib/tauriRuntime";
 
 const AIPanel = lazy(() => import("./components/AIPanel").then((module) => ({ default: module.AIPanel })));
 const CommandPalette = lazy(() => import("./components/CommandPalette").then((module) => ({ default: module.CommandPalette })));
+const KnowledgeGraphView = lazy(() => import("./components/KnowledgeGraphView").then((module) => ({ default: module.KnowledgeGraphView })));
 
 export default function App() {
   useDesktopEvents();
+  useShortcuts();
   const appShellRef = useRef<HTMLDivElement>(null);
   const aiPanelOpen = useStore((state) => state.aiPanelOpen);
+  const knowledgeGraphOpen = useStore((state) => state.knowledgeGraphOpen);
   const viewMode = useStore((state) => state.viewMode);
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const [splitRatio, setSplitRatio] = useState(() => {
@@ -67,42 +74,47 @@ export default function App() {
   }
 
   return (
-    <div ref={appShellRef} className="inkstack-app-shell flex h-[100dvh] w-screen flex-col overflow-hidden bg-bg-base text-text-primary font-sans">
-      <Header />
-      <DocumentTabs />
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <Sidebar />
-        {viewMode === 'split' ? (
-          <div ref={splitContainerRef} className="flex min-h-0 flex-1 overflow-hidden">
-            <div className="min-h-0 min-w-0 shrink-0 overflow-hidden" style={{ width: `${splitRatio * 100}%` }}>
+    <ToastProvider>
+      <ToastRefSetup />
+      <div ref={appShellRef} className="inkstack-app-shell flex h-[100dvh] w-screen flex-col overflow-hidden bg-bg-base text-text-primary font-sans">
+        <Header />
+        <DocumentTabs />
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <Sidebar />
+          {viewMode === 'split' ? (
+            <div ref={splitContainerRef} className="flex min-h-0 flex-1 overflow-hidden">
+              <div className="min-h-0 min-w-0 shrink-0 overflow-hidden" style={{ width: `${splitRatio * 100}%` }}>
+                <EditorPane />
+              </div>
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                onMouseDown={handleSplitDragStart}
+                className="inkstack-split-divider group flex w-2 shrink-0 cursor-col-resize items-center justify-center transition-colors hover:bg-accent/10"
+              >
+                <span className="h-8 w-[3px] rounded-full bg-border-subtle transition-all group-hover:bg-accent/50 group-active:bg-accent group-active:h-12" />
+              </div>
+              <div className="min-h-0 min-w-0 shrink-0 overflow-hidden" style={{ width: `${(1 - splitRatio) * 100}%` }}>
+                <PreviewPane />
+              </div>
+            </div>
+          ) : (
+            <div className="flex min-h-0 flex-1 overflow-hidden">
               <EditorPane />
-            </div>
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              onMouseDown={handleSplitDragStart}
-              className="inkstack-split-divider flex w-2 shrink-0 cursor-col-resize items-center justify-center bg-bg-panel/60"
-            >
-              <span className="h-9 w-[3px] rounded-full bg-border-subtle" />
-            </div>
-            <div className="min-h-0 min-w-0 shrink-0 overflow-hidden" style={{ width: `${(1 - splitRatio) * 100}%` }}>
               <PreviewPane />
             </div>
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-1 overflow-hidden">
-            <EditorPane />
-            <PreviewPane />
-          </div>
-        )}
-        <LazyAIPanelMount />
+          )}
+          <LazyAIPanelMount />
+          {knowledgeGraphOpen && <LazyKnowledgeGraphMount />}
+        </div>
+        <StatusBar />
+        <LazyCommandPaletteMount />
+        <CloseConfirmDialog />
+        <UnsavedChangesDialog />
+        <SaveConflictDialog />
+        <AiContextDialog />
       </div>
-      <StatusBar />
-      <LazyCommandPaletteMount />
-      <UnsavedChangesDialog />
-      <SaveConflictDialog />
-      <AiContextDialog />
-    </div>
+    </ToastProvider>
   );
 }
 
@@ -218,3 +230,23 @@ function LazyCommandPaletteMount() {
     </Suspense>
   );
 }
+
+function LazyKnowledgeGraphMount() {
+  const locale = useStore((state) => state.locale);
+  const closeKnowledgeGraph = useStore((state) => state.toggleKnowledgeGraph);
+  return (
+    <Suspense fallback={null}>
+      <KnowledgeGraphView locale={locale} onClose={closeKnowledgeGraph} />
+    </Suspense>
+  );
+}
+
+function ToastRefSetup() {
+  const toast = useToast();
+  useEffect(() => {
+    setToastRef(toast);
+  }, [toast]);
+  return null;
+}
+
+

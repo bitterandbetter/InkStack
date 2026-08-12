@@ -1,4 +1,5 @@
-import { FileCode2, FilePlus2, FileText, FolderOpen, Save, Languages, Moon, Sun, PanelLeft, Sparkles, LayoutList, BookOpen, PenLine, Search, SlidersHorizontal, Type, Folder, Link2, Settings2 } from 'lucide-react';
+import { FileCode2, FilePlus2, FileText, FolderOpen, Save, Languages, Moon, Sun, PanelLeft, Sparkles, LayoutList, BookOpen, PenLine, Search, SlidersHorizontal, Type, Folder, Link2, Settings2, Network } from 'lucide-react';
+import { Tooltip } from './Tooltip';
 import { useStore } from '../store';
 import { cn } from '../lib/utils';
 import { useEffect, useMemo, useState } from 'react';
@@ -88,89 +89,87 @@ export function Header() {
           </span>
         </button>
       </div>
-      <div className="flex items-center gap-1">
-        <button onClick={() => void runAppCommand('toggle-sidebar')} className="p-1 hover:bg-bg-hover rounded text-text-secondary" title="Toggle Sidebar">
-          <PanelLeft size={16} />
-        </button>
+      <div className="flex items-center gap-1 shrink-0">
+        <Tooltip content={locale === 'zh' ? '切换侧边栏 (⌘\\)' : 'Toggle Sidebar (⌘\\)'}>
+          <button onClick={() => void runAppCommand('toggle-sidebar')} className="p-1 hover:bg-bg-hover rounded text-text-secondary">
+            <PanelLeft size={16} />
+          </button>
+        </Tooltip>
         
-        <div className="h-4 w-px bg-border-subtle mx-2" />
+        <div className="h-4 w-px bg-border-subtle mx-1" />
 
-        <button onClick={() => void runAppCommand('new-file')} className="flex items-center gap-1.5 px-2 py-1 hover:bg-bg-hover rounded text-text-secondary text-xs">
-          <FilePlus2 size={14} />
-          {locale === 'zh' ? '新建' : 'New'}
-        </button>
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent('inkstack:toggle-toolbar-customize'))}
-          className="flex items-center gap-1.5 px-2 py-1 hover:bg-bg-hover rounded text-text-secondary text-xs"
-          title={locale === 'zh' ? '工具栏自定义' : 'Toolbar Customize'}
-        >
-          <Settings2 size={14} />
-          {locale === 'zh' ? '工具栏自定义' : 'Toolbar Customize'}
-        </button>
+        <Tooltip content={locale === 'zh' ? '新建文件 (⌘N)' : 'New File (⌘N)'}>
+          <button onClick={() => void runAppCommand('new-file')} className="flex items-center gap-1 px-1.5 py-1 hover:bg-bg-hover rounded text-text-secondary text-xs">
+            <FilePlus2 size={14} />
+            <span className="hidden sm:inline">{locale === 'zh' ? '新建' : 'New'}</span>
+          </button>
+        </Tooltip>
 
-        <button 
-          onClick={() => void runAppCommand('save')} 
-          disabled={!isDirty || !activeFile || activeFile.readOnly || !activeFile.isMarkdown}
-          className={cn(
-            "flex items-center gap-1.5 px-2 py-1 rounded transition-colors ml-1",
-            isDirty && activeFile && !activeFile.readOnly && activeFile.isMarkdown
-              ? "text-accent bg-accent/10 hover:bg-accent/20" 
-              : "text-text-tertiary bg-transparent"
-          )}
-        >
-          <Save size={14} />
-          {locale === 'zh' ? '保存' : 'Save'} {isDirty && '*'}
-        </button>
-        <button
-          onClick={() => setAutoSaveEnabled(!autoSaveEnabled)}
-          className={cn(
-            "rounded px-2 py-1 text-xs transition-colors",
-            autoSaveEnabled
-              ? "bg-accent/10 text-accent hover:bg-accent/20"
-              : "text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
-          )}
-          title={locale === 'zh' ? '防抖自动保存已有 Markdown 文件' : 'Debounced autosave for existing Markdown files'}
-        >
-          {locale === 'zh' ? '自动保存' : 'Auto Save'}
-        </button>
-        {viewMode === 'split' && (
-          <button
-            onClick={() => setSplitScrollSync(!splitScrollSync)}
+        <Tooltip content={locale === 'zh' ? '保存文件 (⌘S)' : 'Save File (⌘S)'}>
+          <button 
+            onClick={() => void runAppCommand('save')} 
+            disabled={!isDirty || !activeFile || activeFile.readOnly || !activeFile.isMarkdown}
             className={cn(
-              "ml-1 flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors",
-              splitScrollSync
+              "flex items-center gap-1 px-1.5 py-1 rounded transition-colors",
+              isDirty && activeFile && !activeFile.readOnly && activeFile.isMarkdown
+                ? "text-accent bg-accent/10 hover:bg-accent/20" 
+                : "text-text-tertiary bg-transparent"
+            )}
+          >
+            <Save size={14} />
+            <span className="hidden sm:inline">{locale === 'zh' ? '保存' : 'Save'}</span>
+          </button>
+        </Tooltip>
+        <Tooltip content={locale === 'zh' ? '防抖自动保存已有 Markdown 文件' : 'Debounced autosave for existing Markdown files'}>
+          <button
+            onClick={() => setAutoSaveEnabled(!autoSaveEnabled)}
+            className={cn(
+              "rounded px-1.5 py-1 text-xs transition-colors",
+              autoSaveEnabled
                 ? "bg-accent/10 text-accent hover:bg-accent/20"
                 : "text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
             )}
-            title={splitScrollSync
-              ? (locale === 'zh' ? '分屏联动滚动：已开启' : 'Split scroll sync: On')
-              : (locale === 'zh' ? '分屏联动滚动：已关闭' : 'Split scroll sync: Off')}
           >
-            <Link2 size={14} />
-            {locale === 'zh' ? '联动滚动' : 'Scroll Sync'}
+            <span className="hidden sm:inline">{locale === 'zh' ? '自动保存' : 'Auto Save'}</span>
+            <span className="sm:hidden">AS</span>
           </button>
+        </Tooltip>
+        {viewMode === 'split' && (
+          <Tooltip content={splitScrollSync
+            ? (locale === 'zh' ? '分屏联动滚动：已开启 (点击关闭)' : 'Split scroll sync: On (click to disable)')
+            : (locale === 'zh' ? '分屏联动滚动：已关闭 (点击开启)' : 'Split scroll sync: Off (click to enable)')}>
+            <button
+              onClick={() => setSplitScrollSync(!splitScrollSync)}
+              className={cn(
+                "flex items-center gap-1 rounded px-1.5 py-1 text-xs transition-colors",
+                splitScrollSync
+                  ? "bg-accent/10 text-accent hover:bg-accent/20"
+                  : "text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+              )}
+            >
+              <Link2 size={14} />
+            </button>
+          </Tooltip>
         )}
-        <button
-          onClick={() => setImageInsertMode(imageInsertMode === 'assets' ? 'embed' : 'assets')}
-          className="ml-1 flex items-center gap-1.5 rounded px-2 py-1 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
-          title={locale === 'zh' ? '切换图片插入方式：插入链接 / 图片内嵌' : 'Toggle image mode: link insert / embedded image'}
-        >
-          <FileText size={14} />
-          {imageInsertMode === 'assets'
-            ? (locale === 'zh' ? '插入链接' : 'Link Insert')
-            : (locale === 'zh' ? '图片内嵌' : 'Image Embed')}
-        </button>
-        <button
-          onClick={() => void runAppCommand('find')}
-          className="ml-1 flex items-center gap-1.5 rounded px-2 py-1 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
-          title={locale === 'zh' ? '文档内搜索' : 'Find in Document'}
-        >
-          <Search size={14} />
-          {locale === 'zh' ? '文档搜索' : 'Find'}
-        </button>
+        <Tooltip content={locale === 'zh' ? '切换图片插入方式' : 'Toggle image mode'}>
+          <button
+            onClick={() => setImageInsertMode(imageInsertMode === 'assets' ? 'embed' : 'assets')}
+            className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+          >
+            <FileText size={14} />
+          </button>
+        </Tooltip>
+        <Tooltip content={locale === 'zh' ? '文档内搜索 (⌘F)' : 'Find in Document (⌘F)'}>
+          <button
+            onClick={() => void runAppCommand('find')}
+            className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+          >
+            <Search size={14} />
+          </button>
+        </Tooltip>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 shrink-0">
         <div className="flex bg-bg-active rounded p-[2px] items-center text-text-secondary shadow-inner">
           <button 
             onClick={() => void runAppCommand('view-edit')} 
@@ -407,10 +406,17 @@ export function Header() {
         <button onClick={() => void runAppCommand('toggle-ai')} className="p-1 hover:bg-bg-hover rounded text-accent" title="AI Assistant">
           <Sparkles size={16} />
         </button>
-        <button onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')} className="p-1 hover:bg-bg-hover rounded text-text-secondary flex items-center gap-1 text-[11px]" title="Switch Language">
-          <Languages size={16} />
-          {locale === 'zh' ? 'EN' : 'ZH'}
-        </button>
+        <Tooltip content={locale === 'zh' ? '知识图谱' : 'Knowledge Graph'}>
+          <button onClick={() => useStore.getState().toggleKnowledgeGraph()} className="p-1 hover:bg-bg-hover rounded text-text-secondary">
+            <Network size={16} />
+          </button>
+        </Tooltip>
+        <Tooltip content={locale === 'zh' ? '切换语言' : 'Switch Language'}>
+          <button onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')} className="p-1 hover:bg-bg-hover rounded text-text-secondary flex items-center gap-1 text-[11px] font-medium">
+            <Languages size={16} />
+            <span className="w-5 text-center">{locale === 'zh' ? 'EN' : '中'}</span>
+          </button>
+        </Tooltip>
       </div>
     </header>
   );

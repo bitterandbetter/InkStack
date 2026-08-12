@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Maximize2, Minus, RotateCcw, X, ZoomIn } from 'lucide-react';
 import { saveExportFile } from '../lib/export';
+import { getErrorMessage } from '../lib/utils';
 
 interface MermaidProps {
   chart: string;
@@ -99,8 +100,8 @@ export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
       await saveExportFile('diagram.png', dataUrl, 'png', 'png');
       setStatus('PNG exported');
       window.setTimeout(() => setStatus(''), 1800);
-    } catch (error: any) {
-      setStatus(error?.message ?? 'PNG export failed');
+    } catch (error: unknown) {
+      setStatus(getErrorMessage(error) || 'PNG export failed');
       window.setTimeout(() => setStatus(''), 2500);
     }
   };

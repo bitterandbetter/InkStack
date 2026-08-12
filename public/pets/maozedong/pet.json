@@ -1,0 +1,7 @@
+{
+  "id": "kaname-rana",
+  "displayName": "Kaname Rana",
+  "description": "A playful pixel companion with a lively stage presence and a fondness for Matcha Great Parfait.",
+  "spritesheetPath": "spritesheet.webp",
+  "kind": "companion"
+}

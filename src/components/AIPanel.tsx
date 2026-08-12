@@ -28,7 +28,6 @@ import {
   lineNumberAtOffset,
   type ExtractedCodeBlock
 } from './aiCodeHelpers';
-import type { SaveHistoryFilter } from './LocalSettingsPanels';
 import type { AiSelectionAttachment, AiWorkspaceContext, Message } from './aiPanelTypes';
 import {
   buildAcceptedRewriteText,
@@ -201,6 +200,17 @@ export function AIPanel() {
     }
     return parseCodeBlocks(activeFileContent);
   }, [activeFile, activeFileContent]);
+
+  const filteredCodeBlocks = useMemo(() => codeBlocks.filter((block) => {
+    const languageMatches = codeLanguageFilter === 'all' || block.language === codeLanguageFilter;
+    const query = codeQuery.trim().toLowerCase();
+    const queryMatches = !query
+      || block.code.toLowerCase().includes(query)
+      || (block.language || 'text').toLowerCase().includes(query)
+      || block.symbols.some((symbol) => symbol.text.toLowerCase().includes(query));
+    return languageMatches && queryMatches;
+  }), [codeBlocks, codeLanguageFilter, codeQuery]);
+
   const activePreset = getProviderPreset(aiConfig.providerId);
   const draftModels = getProviderModels(draftConfig.providerId);
   const selectedContextIds = useMemo(() => new Set(selectedContexts.map((context) => context.path)), [selectedContexts]);
@@ -242,7 +252,7 @@ export function AIPanel() {
           ? `请求模型：${result.requestedModel}\n接口返回：${responseModel}\n模型自报：${answer}`
           : `Requested: ${result.requestedModel}\nAPI returned: ${responseModel}\nSelf-report: ${answer}`
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       setModelTest(`${locale === 'zh' ? '测试失败' : 'Test failed'}: ${sanitizeAiError(error, locale)}`);
     } finally {
       setIsTestingModel(false);
@@ -306,7 +316,7 @@ export function AIPanel() {
       const result = await request(abortController.signal);
       if (abortController.signal.aborted) return null;
       return result;
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (isAiAbortError(error)) return null;
       return `${locale === 'zh' ? 'AI 请求失败' : 'AI request failed'}: ${sanitizeAiError(error, locale)}`;
     } finally {
@@ -327,7 +337,7 @@ export function AIPanel() {
       const result = await request(abortController.signal, onDelta);
       if (abortController.signal.aborted) return null;
       return result;
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (isAiAbortError(error)) return null;
       return `${locale === 'zh' ? 'AI 请求失败' : 'AI request failed'}: ${sanitizeAiError(error, locale)}`;
     } finally {

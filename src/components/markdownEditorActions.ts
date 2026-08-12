@@ -1,5 +1,6 @@
 import { EditorView } from '@codemirror/view';
 import { pickAndImportMarkdownAsset } from '../lib/fs';
+import { getErrorMessage } from '../lib/utils';
 import type { ImageInsertMode } from '../store';
 import type { MarkdownAction } from './editorPaneTypes';
 
@@ -123,8 +124,8 @@ export async function pickAndInsertAsset(
       : (locale === 'zh' ? `已导入附件：${asset.relativeSrc}` : `Attachment imported: ${asset.relativeSrc}`));
     window.setTimeout(() => setStatus(''), 2200);
     view.focus();
-  } catch (error: any) {
-    setStatus(error?.message ?? String(error));
+  } catch (error: unknown) {
+    setStatus(getErrorMessage(error));
     window.setTimeout(() => setStatus(''), 3500);
   }
 }

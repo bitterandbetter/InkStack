@@ -1,11 +1,10 @@
 import { useEffect, useRef } from 'react';
-import { getCurrentWindow, isTauriRuntime, listen } from '../lib/tauriRuntime';
+import { isTauriRuntime, listen } from '../lib/tauriRuntime';
 import { getSettings, takeStartupMarkdownPaths } from '../lib/fs';
 import {
   checkActiveFileExternalModification,
   openTextPath,
   openWorkspacePath,
-  requestAppQuit,
   refreshWorkspaceTree,
   saveActiveFile
 } from '../lib/desktopActions';
@@ -21,25 +20,12 @@ const IMAGE_EXTENSION_PATTERN = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 
 export function useDesktopEvents() {
   const {
-    toggleCommandPalette,
     autoSaveEnabled,
     isDirty,
     activeFile,
     activeFileContent
   } = useStore();
   const autoSaveRetryRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        toggleCommandPalette();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleCommandPalette]);
 
   useEffect(() => {
     if (autoSaveRetryRef.current) {
@@ -143,23 +129,4 @@ export function useDesktopEvents() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!isTauriRuntime()) return;
-
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
-
-    void getCurrentWindow().onCloseRequested(async (event) => {
-      event.preventDefault();
-      await requestAppQuit();
-    }).then((dispose) => {
-      if (disposed) dispose();
-      else unlisten = dispose;
-    });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
 }

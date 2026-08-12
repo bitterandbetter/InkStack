@@ -1,9 +1,11 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use serde::Serialize;
 use tauri::Emitter;
 use tauri_plugin_dialog::DialogExt;
 
@@ -15,10 +17,19 @@ use crate::file_kinds::{
     classify_file_path, is_hidden_tree_entry, is_ignored_dir, is_reasonable_text_file,
 };
 use crate::models::{
-    CreateWorkspaceEntryRequest, DirectoryScanResult, FileEntry, MarkdownDocument,
+    CreateWorkspaceEntryRequest, DeleteWorkspaceEntryResult, DirectoryScanResult, FileEntry, MarkdownDocument,
     RenameWorkspaceEntryRequest,
 };
+use crate::workspace_index::clear_workspace_index;
 use crate::AppState;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceChangedPayload {
+    root: String,
+    paths: Vec<String>,
+    full_refresh: bool,
+}
 
 #[tauri::command]
 pub async fn choose_workspace(app: tauri::AppHandle) -> Result<Option<String>, String> {
@@ -45,6 +56,7 @@ pub async fn scan_directory(
             .map_err(|_| "Workspace state is unavailable".to_string())?;
         *workspace_root = Some(root.clone());
     }
+    clear_workspace_index(&state)?;
     restart_workspace_watcher(&app, &state, &root)?;
 
     add_recent_workspace(&app, &root).await?;
@@ -125,24 +137,53 @@ pub async fn rename_workspace_entry(
 pub async fn delete_workspace_entry(
     path: String,
     state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<DeleteWorkspaceEntryResult, String> {
     let path = resolve_workspace_entry_path(&path, &state)?;
 
-    if path.is_dir() {
-        tokio::fs::remove_dir(&path).await.map_err(|error| {
-            if error.kind() == std::io::ErrorKind::DirectoryNotEmpty {
-                "Folder is not empty. Delete files inside it first.".to_string()
-            } else {
-                error.to_string()
-            }
-        })?;
-    } else {
-        tokio::fs::remove_file(&path)
-            .await
-            .map_err(|error| error.to_string())?;
+    if move_to_trash(&path).is_ok() {
+        return Ok(DeleteWorkspaceEntryResult {
+            moved_to_trash: true,
+            fallback_deleted: false,
+        });
     }
 
-    Ok(())
+    if path.is_dir() {
+        tokio::fs::remove_dir_all(&path).await
+    } else {
+        tokio::fs::remove_file(&path).await
+    }
+    .map_err(|error| error.to_string())?;
+
+    Ok(DeleteWorkspaceEntryResult {
+        moved_to_trash: false,
+        fallback_deleted: true,
+    })
+}
+
+fn move_to_trash(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let script = r#"on run argv
+  tell application "Finder" to delete POSIX file (item 1 of argv)
+end run"#;
+        let status = Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .arg(path.to_string_lossy().to_string())
+            .status()
+            .map_err(|error| error.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("Failed to move entry to Trash: {status}"))
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        Err("Trash is not available on this platform".to_string())
+    }
 }
 
 fn restart_workspace_watcher(
@@ -161,7 +202,16 @@ fn restart_workspace_watcher(
                 return;
             }
 
-            let _ = app_handle.emit("inkstack://workspace-changed", event_root.clone());
+            let payload = WorkspaceChangedPayload {
+                root: event_root.clone(),
+                paths: event
+                    .paths
+                    .iter()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect(),
+                full_refresh: matches!(event.kind, EventKind::Any),
+            };
+            let _ = app_handle.emit("inkstack://workspace-changed", payload);
         },
         Config::default(),
     )

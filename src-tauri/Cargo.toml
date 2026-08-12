@@ -1,6 +1,6 @@
 [package]
 name = "inkstack"
-version = "1.0.3"
+version = "1.1.0"
 description = "A local-first AI-native Markdown editor for macOS"
 authors = ["InkStack"]
 edition = "2021"
@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 regex = "1"
 notify = "6"
+rusqlite = { version = "0.32.1", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }

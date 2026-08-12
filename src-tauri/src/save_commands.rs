@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use tauri_plugin_dialog::DialogExt;
 
@@ -124,12 +127,16 @@ pub async fn save_export_file(
 
 async fn write_markdown_document(path: &Path, content: String) -> Result<(), String> {
     let tmp_path = temporary_save_path(path)?;
-    tokio::fs::write(&tmp_path, content)
-        .await
-        .map_err(|error| error.to_string())?;
-    tokio::fs::rename(&tmp_path, path)
-        .await
-        .map_err(|error| error.to_string())
+    if let Err(error) = tokio::fs::write(&tmp_path, content).await {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+        return Err(error.to_string());
+    }
+
+    let rename_result = tokio::fs::rename(&tmp_path, path).await;
+    if rename_result.is_err() {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+    }
+    rename_result.map_err(|error| error.to_string())
 }
 
 fn sanitize_export_extension(value: &str) -> Result<String, String> {

@@ -8,6 +8,7 @@ import {
   Code,
   Code2,
   Columns2,
+  Download,
   FileCode2,
   FilePlus2,
   FileText,
@@ -68,6 +69,7 @@ export function CommandPalette() {
     rootPath,
     isDarkMode,
     activeFile,
+    activeFileContent,
     editorSelection,
     themeState,
     setActiveThemeId,
@@ -185,6 +187,78 @@ export function CommandPalette() {
         subtitle: APP_COMMAND_SHORTCUTS.save,
         icon: <Save size={15} />,
         run: () => runAppCommand('save')
+      },
+      {
+        id: 'export-html',
+        title: locale === 'zh' ? '导出为 HTML' : 'Export as HTML',
+        subtitle: locale === 'zh' ? '将当前文档导出为带样式的 HTML 文件' : 'Export current document as styled HTML file',
+        icon: <Download size={15} />,
+        run: async () => {
+          const { exportToHtml } = await import('../lib/export');
+          if (activeFileContent) {
+            await exportToHtml(activeFileContent, { format: 'html', includeStyles: true });
+          }
+        }
+      },
+      {
+        id: 'export-markdown',
+        title: locale === 'zh' ? '导出为 Markdown' : 'Export as Markdown',
+        subtitle: locale === 'zh' ? '将当前文档导出为 .md 文件' : 'Export current document as .md file',
+        icon: <Download size={15} />,
+        run: async () => {
+          const { exportToMarkdown } = await import('../lib/export');
+          if (activeFileContent) {
+            await exportToMarkdown(activeFileContent);
+          }
+        }
+      },
+      {
+        id: 'export-pdf',
+        title: locale === 'zh' ? '导出为 PDF' : 'Export as PDF',
+        subtitle: locale === 'zh' ? '通过浏览器打印导出 PDF' : 'Export as PDF via browser print',
+        icon: <Download size={15} />,
+        run: async () => {
+          const { exportToPdf } = await import('../lib/export');
+          if (activeFileContent) {
+            await exportToPdf(activeFileContent);
+          }
+        }
+      },
+      {
+        id: 'export-docx',
+        title: locale === 'zh' ? '导出为 Word' : 'Export as Word',
+        subtitle: locale === 'zh' ? '将当前文档导出为 .docx 文件' : 'Export current document as .docx file',
+        icon: <Download size={15} />,
+        run: async () => {
+          const { exportToDocx } = await import('../lib/export');
+          if (activeFileContent) {
+            await exportToDocx(activeFileContent, locale);
+          }
+        }
+      },
+      {
+        id: 'export-png',
+        title: locale === 'zh' ? '导出为图片' : 'Export as Image',
+        subtitle: locale === 'zh' ? '将当前文档导出为 PNG 图片' : 'Export current document as PNG image',
+        icon: <Download size={15} />,
+        run: async () => {
+          const { exportToPng } = await import('../lib/export');
+          if (activeFileContent) {
+            await exportToPng(activeFileContent, locale);
+          }
+        }
+      },
+      {
+        id: 'print-document',
+        title: locale === 'zh' ? '打印文档' : 'Print Document',
+        subtitle: locale === 'zh' ? '使用系统打印功能打印当前文档' : 'Print current document using system print',
+        icon: <Download size={15} />,
+        run: async () => {
+          const { printDocument } = await import('../lib/export');
+          if (activeFileContent) {
+            await printDocument(activeFileContent, locale);
+          }
+        }
       },
       ...(mergePinnedRecentEntries(recentSettings?.pinnedWorkspaces ?? [], recentSettings?.recentWorkspaces ?? [], 6).map(({ path, pinned }) => ({
         id: `${pinned ? 'pinned' : 'recent'}-workspace:${path}`,

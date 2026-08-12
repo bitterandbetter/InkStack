@@ -18,7 +18,7 @@ export function DocumentTabs() {
     goForward
   } = useStore();
 
-  if (documentTabs.length === 0) return null;
+  if (!Array.isArray(documentTabs) || documentTabs.length === 0) return null;
 
   const handleClose = async (tab: DocumentTab, event: MouseEvent) => {
     event.stopPropagation();

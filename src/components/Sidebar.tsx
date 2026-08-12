@@ -1,5 +1,5 @@
 import { Braces, ChevronDown, ChevronRight, FileCode2, FileText, FolderOpen, Pencil, Plus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { FileNode, loadDirectoryChildren } from "../lib/fs";
 import {
@@ -11,6 +11,13 @@ import {
 } from "../lib/desktopActions";
 import { cn } from "../lib/utils";
 import { runAppCommand } from "../lib/appCommands";
+import { Tooltip } from "./Tooltip";
+import { useToast } from "./Toast";
+import { useModalDialogs } from "./modalDialogs";
+
+const SIDEBAR_WIDTH_KEY = 'inkstack.sidebar.width.v1';
+const SIDEBAR_MIN_WIDTH = 180;
+const SIDEBAR_MAX_WIDTH = 400;
 
 type ContextMenuState = {
   node: FileNode | null;
@@ -31,6 +38,7 @@ const FileTreeNode = ({
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { activeFile, setDirectoryChildren } = useStore();
+  const toast = useToast();
 
   const isSelected = activeFile?.path === node.path;
 
@@ -56,6 +64,7 @@ const FileTreeNode = ({
         await openTextPath(node.path);
       } catch (err) {
         console.error("Failed to read file", err);
+        toast.error(err instanceof Error ? err.message : String(err));
       }
     }
   };
@@ -118,7 +127,40 @@ function FileIcon({ node }: { node: FileNode }) {
 
 export function Sidebar() {
   const { rootPath, fileTree, sidebarOpen, locale } = useStore();
+  const { prompt, confirmDialog, dialogElement } = useModalDialogs(locale);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    return saved ? Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Number(saved))) : 240;
+  });
+  const isDragging = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    isDragging.current = true;
+    startX.current = e.clientX;
+    startWidth.current = sidebarWidth;
+    document.body.classList.add('inkstack-sidebar-resizing');
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDragging.current) return;
+      const delta = moveEvent.clientX - startX.current;
+      const newWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, startWidth.current + delta));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      isDragging.current = false;
+      document.body.classList.remove('inkstack-sidebar-resizing');
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [sidebarWidth]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -158,24 +200,27 @@ export function Sidebar() {
   };
 
   return (
-    <div className="w-60 border-r border-border-subtle bg-bg-panel flex flex-col h-full overflow-hidden shrink-0">
+    <div className="relative flex h-full shrink-0" style={{ width: sidebarWidth }}>
+      <div className="flex-1 border-r border-border-subtle bg-bg-panel flex flex-col h-full overflow-hidden">
       <div className="p-4 flex items-center justify-between">
         <span className="text-[11px] font-bold text-text-tertiary uppercase tracking-wider">{locale === 'zh' ? '资源管理器' : 'Library'}</span>
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => void runAppCommand('open-workspace')}
-            className="rounded p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
-            title={locale === 'zh' ? '打开本地目录' : 'Open Folder'}
-          >
-            <FolderOpen size={14} />
-          </button>
-          <button
-            onClick={() => void runAppCommand('open-file')}
-            className="rounded p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
-            title={locale === 'zh' ? '打开文件' : 'Open File'}
-          >
-            <FileText size={14} />
-          </button>
+          <Tooltip content={locale === 'zh' ? '打开本地目录 (⌘⇧O)' : 'Open Folder (⌘⇧O)'}>
+            <button
+              onClick={() => void runAppCommand('open-workspace')}
+              className="rounded p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+            >
+              <FolderOpen size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip content={locale === 'zh' ? '打开文件 (⌘O)' : 'Open File (⌘O)'}>
+            <button
+              onClick={() => void runAppCommand('open-file')}
+              className="rounded p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+            >
+              <FileText size={14} />
+            </button>
+          </Tooltip>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5" onContextMenu={openRootContextMenu}>
@@ -198,8 +243,20 @@ export function Sidebar() {
           state={contextMenu}
           locale={locale}
           onClose={() => setContextMenu(null)}
+          prompt={prompt}
+          confirmDialog={confirmDialog}
         />
       )}
+      {dialogElement}
+      </div>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        onMouseDown={handleDragStart}
+        className="absolute right-0 top-0 z-30 flex h-full w-2 -translate-x-1/2 cursor-col-resize items-center justify-center group"
+      >
+        <div className="h-8 w-[3px] rounded-full bg-border-subtle transition-all group-hover:bg-accent/50 group-hover:h-12" />
+      </div>
     </div>
   );
 }
@@ -207,11 +264,15 @@ export function Sidebar() {
 function WorkspaceContextMenu({
   state,
   locale,
-  onClose
+  onClose,
+  prompt,
+  confirmDialog
 }: {
   state: ContextMenuState;
   locale: 'zh' | 'en';
   onClose: () => void;
+  prompt: (title: string, initialValue?: string, message?: string) => Promise<string | null>;
+  confirmDialog: (title: string, message?: string, danger?: boolean, confirmLabel?: string) => Promise<boolean>;
 }) {
   const node = state.node;
   const parentPath = state.parentPath;
@@ -222,35 +283,37 @@ function WorkspaceContextMenu({
       await action();
     } catch (err) {
       console.error('Workspace action failed', err);
-      window.alert(err instanceof Error ? err.message : String(err));
     }
   };
 
   const createFile = () => run(async () => {
-    const name = window.prompt(locale === 'zh' ? '新建 Markdown 文件名' : 'New Markdown file name', 'Untitled.md');
+    const name = await prompt(locale === 'zh' ? '新建 Markdown 文件名' : 'New Markdown file name', 'Untitled.md');
     if (!name) return;
     await createMarkdownFileInWorkspace(parentPath, name);
   });
 
   const createFolder = () => run(async () => {
-    const name = window.prompt(locale === 'zh' ? '新建文件夹名称' : 'New folder name', 'New Folder');
+    const name = await prompt(locale === 'zh' ? '新建文件夹名称' : 'New folder name', 'New Folder');
     if (!name) return;
     await createFolderInWorkspace(parentPath, name);
   });
 
   const rename = () => run(async () => {
     if (!node) return;
-    const name = window.prompt(locale === 'zh' ? '重命名' : 'Rename', node.name);
+    const name = await prompt(locale === 'zh' ? '重命名' : 'Rename', node.name);
     if (!name || name === node.name) return;
     await renameEntryInWorkspace(node.path, name);
   });
 
   const remove = () => run(async () => {
     if (!node) return;
-    const confirmed = window.confirm(
+    const confirmed = await confirmDialog(
+      locale === 'zh' ? '确认删除' : 'Confirm Delete',
       locale === 'zh'
         ? `确认删除“${node.name}”？空文件夹和文件会直接删除。`
-        : `Delete "${node.name}"? Files and empty folders are deleted directly.`
+        : `Delete "${node.name}"? Files and empty folders are deleted directly.`,
+      true,
+      locale === 'zh' ? '删除' : 'Delete'
     );
     if (!confirmed) return;
     await deleteEntryInWorkspace(node.path);

@@ -61,9 +61,9 @@ pub async fn prune_missing_recent_entries(app: tauri::AppHandle) -> Result<AppSe
     settings
         .recent_files
         .retain(|path| Path::new(path).is_file() && is_markdown_path(Path::new(path)));
-    settings
-        .recent_file_entries
-        .retain(|entry| Path::new(&entry.path).is_file() && is_markdown_path(Path::new(&entry.path)));
+    settings.recent_file_entries.retain(|entry| {
+        Path::new(&entry.path).is_file() && is_markdown_path(Path::new(&entry.path))
+    });
     settings
         .pinned_files
         .retain(|path| Path::new(path).is_file() && is_markdown_path(Path::new(path)));
@@ -94,7 +94,11 @@ pub async fn add_recent_workspace(app: &tauri::AppHandle, root: &Path) -> Result
         .recent_workspaces
         .retain(|workspace| workspace != &root);
     settings.recent_workspaces.insert(0, root.clone());
-    upsert_recent_entry(&mut settings.recent_workspace_entries, root.clone(), current_time_millis()?);
+    upsert_recent_entry(
+        &mut settings.recent_workspace_entries,
+        root.clone(),
+        current_time_millis()?,
+    );
     settings.last_workspace = Some(root);
     update_settings(app.clone(), settings).await?;
     Ok(())
@@ -105,7 +109,11 @@ pub async fn add_recent_file(app: &tauri::AppHandle, path: &Path) -> Result<(), 
     let path = path.to_string_lossy().to_string();
     settings.recent_files.retain(|file| file != &path);
     settings.recent_files.insert(0, path.clone());
-    upsert_recent_entry(&mut settings.recent_file_entries, path.clone(), current_time_millis()?);
+    upsert_recent_entry(
+        &mut settings.recent_file_entries,
+        path.clone(),
+        current_time_millis()?,
+    );
     settings.last_file = Some(path);
     update_settings(app.clone(), settings).await?;
     Ok(())

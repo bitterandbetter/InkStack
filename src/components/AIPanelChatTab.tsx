@@ -260,8 +260,15 @@ export function AIPanelChatTab({
         ))}
         {isTyping && (
           <div className="self-start w-[78%] rounded-lg rounded-tl-none bg-ai-bot p-3 text-[13px] text-text-primary">
-            <div className="animate-pulse">
-              {locale === 'zh' ? 'AI 正在生成，最长等待约 60 秒...' : 'AI is generating, waiting up to about 60 seconds...'}
+            <div className="flex items-center gap-2">
+              <div className="inkstack-ai-typing flex gap-1">
+                <span className="inline-block h-2 w-2 rounded-full bg-accent/60" style={{ animation: 'bounce 1.4s infinite ease-in-out; animation-delay: -0.32s' }} />
+                <span className="inline-block h-2 w-2 rounded-full bg-accent/60" style={{ animation: 'bounce 1.4s infinite ease-in-out; animation-delay: -0.16s' }} />
+                <span className="inline-block h-2 w-2 rounded-full bg-accent/60" style={{ animation: 'bounce 1.4s infinite ease-in-out' }} />
+              </div>
+              <span className="text-text-secondary">
+                {locale === 'zh' ? 'AI 正在思考...' : 'AI is thinking...'}
+              </span>
             </div>
             <button
               onClick={onCancelAiRequest}

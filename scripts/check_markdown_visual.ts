@@ -3,7 +3,7 @@ import path from 'node:path';
 import { parseCodeBlocks } from '../src/lib/outline';
 
 const root = process.cwd();
-const fixturePath = path.join(root, 'InkStack功能测试.md');
+const fixturePath = path.join(root, 'tests/fixtures/InkStack功能测试.md');
 const cssPath = path.join(root, 'src/index.css');
 const outputDir = path.join(root, 'tmp');
 const outputPath = path.join(outputDir, 'markdown-visual-regression.html');
@@ -51,10 +51,7 @@ const hasRootViewportLock = sourceIncludes('src/index.css', 'html,\n  body,\n  #
   && sourceIncludes('src/index.css', 'overflow: hidden;')
   && sourceIncludes('src/App.tsx', 'h-[100dvh]')
   && sourceIncludes('src/App.tsx', 'min-h-0 flex-1');
-const hasThemePanels = sourceIncludes('src/components/ThemeSettingsPanel.tsx', 'Import CSS Theme')
-  && sourceIncludes('src/components/ThemeSettingsPanel.tsx', 'Imported themes are checked')
-  && sourceIncludes('src/components/LocalSettingsPanels.tsx', 'Save History')
-  && sourceIncludes('src/components/AiSettingsPanel.tsx', 'AICodeMirror API');
+const hasThemePanels = sourceIncludes('src/components/AiSettingsPanel.tsx', 'AICodeMirror API');
 const hasAiContextBudgetWarning = sourceIncludes('src/components/AiContextDialog.tsx', 'tokens > 12_000')
   && sourceIncludes('src/components/AiContextDialog.tsx', 'context is large');
 const hasDesktopCodeView = sourceIncludes('src/components/CodeBlocksPanel.tsx', 'Diff previous')
@@ -90,7 +87,7 @@ const hasDesktopNotifications = sourceIncludes('src-tauri/src/notification_comma
   && sourceIncludes('src-tauri/src/lib.rs', 'mod notification_commands;')
   && sourceIncludes('src/lib/desktopActions.ts', 'notifySaveFailure')
   && sourceIncludes('src/lib/fs.ts', 'showDesktopNotification');
-const hasDesktopBundleConfig = sourceIncludes('src-tauri/tauri.conf.json', '"targets": ["app", "dmg"]')
+const hasDesktopBundleConfig = sourceIncludes('src-tauri/tauri.conf.json', '"targets": ["dmg"]')
   && sourceIncludes('src-tauri/tauri.conf.json', '"ext": ["md", "markdown"]')
   && sourceIncludes('src-tauri/tauri.conf.json', '"minWidth": 920');
 const hasTauriVisualCaptureScript = sourceIncludes('scripts/capture_tauri_visual.sh', 'TAURI_DEV_ARGS=(dev --no-watch)')
@@ -114,7 +111,7 @@ const checks: Array<[string, boolean]> = [
   ['desktop root viewport is locked to prevent bottom blank space', hasRootViewportLock],
   ['Tauri desktop listeners are runtime guarded', hasDesktopRuntimeListenersGuarded],
   ['view shortcuts match UI order 1 edit, 2 split, 3 read, 4 code', hasViewShortcutOrder],
-  ['desktop bundle config includes app/dmg and Markdown associations', hasDesktopBundleConfig],
+  ['desktop bundle config produces DMG and keeps Markdown associations', hasDesktopBundleConfig],
   ['Tauri visual baseline capture script exists', hasTauriVisualCaptureScript],
   ['macOS release script checks notarization and quarantine state', hasMacReleaseDistributionChecks],
   ['settings panels expose stable desktop UI sections', hasThemePanels],

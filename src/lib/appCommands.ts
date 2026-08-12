@@ -10,6 +10,7 @@ import {
 import { emitAiPanelTab, emitEditorCommand, type AiPanelTab } from './appEvents';
 import { openDirectory, openMarkdownFileDialog } from './fs';
 import { useStore } from '../store';
+import { loadShortcuts, getShortcutForCommand } from './shortcuts';
 
 export type AppCommandId =
   | 'new-file'
@@ -53,6 +54,15 @@ export const APP_COMMAND_SHORTCUTS: Partial<Record<AppCommandId, string>> = {
   'view-read': 'Cmd/Ctrl+3',
   'view-code': 'Cmd/Ctrl+4'
 };
+
+export function getAppCommandShortcuts(): Partial<Record<AppCommandId, string>> {
+  const shortcuts = loadShortcuts();
+  const result: Partial<Record<AppCommandId, string>> = {};
+  for (const shortcut of shortcuts) {
+    result[shortcut.id] = shortcut.currentKeys[0];
+  }
+  return result;
+}
 
 const APP_COMMAND_IDS = new Set<AppCommandId>([
   'new-file',

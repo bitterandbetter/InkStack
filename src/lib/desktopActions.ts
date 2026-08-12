@@ -17,6 +17,7 @@ import {
   writeFileContentAs
 } from './fs';
 import { fileNameFromPath } from './path';
+import { getErrorMessage } from './utils';
 import { invoke, isTauriRuntime } from './tauriRuntime';
 import { useStore, type DocumentTab, type SaveFailureType, type SaveHistorySource } from '../store';
 
@@ -160,7 +161,8 @@ export async function openMarkdownPath(path: string, line?: number | null, optio
   const sameFile = Boolean(current?.path && current.path === path);
   if (!sameFile && !options.skipUnsavedCheck && !(await ensureCanReplaceActiveDocument())) return false;
 
-  const existingTab = currentState.documentTabs.find((tab) => tab.file.path === path);
+  const documentTabs = getDocumentTabsFromState(currentState);
+  const existingTab = documentTabs.find((tab) => tab.file.path === path);
   if (existingTab) {
     const { switchDocumentTab, setPendingEditorLine, setViewMode } = useStore.getState();
     switchDocumentTab(existingTab.id);
@@ -203,14 +205,15 @@ export async function openTextPath(path: string, line?: number | null, options: 
   const sameFile = Boolean(current?.path && current.path === path);
   if (!sameFile && !options.skipUnsavedCheck && !(await ensureCanReplaceActiveDocument())) return false;
 
-  const existingTab = currentState.documentTabs.find((tab) => tab.file.path === path);
+  const documentTabs = getDocumentTabsFromState(currentState);
+  const existingTab = documentTabs.find((tab) => tab.file.path === path);
   if (existingTab) {
     const { switchDocumentTab, setPendingEditorLine, setViewMode } = useStore.getState();
     switchDocumentTab(existingTab.id);
     if (line && line > 0) setPendingEditorLine(line);
     if (!existingTab.file.isMarkdown) {
       setViewMode('edit');
-    } else if (line && line > 0) {
+    } else if ((line && line > 0) || currentState.viewMode === 'code') {
       setViewMode('split');
     }
     return true;
@@ -240,7 +243,7 @@ export async function openTextPath(path: string, line?: number | null, options: 
   }
   if (!document.isMarkdown) {
     setViewMode('edit');
-  } else if (line && line > 0) {
+  } else if ((line && line > 0) || currentState.viewMode === 'code') {
     setViewMode('split');
   }
   return true;
@@ -291,9 +294,9 @@ export async function saveActiveFile(source: SaveHistorySource = 'manual'): Prom
       message: source === 'auto' ? '自动保存成功' : '保存成功'
     });
     return true;
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Save failed', err);
-    const message = err?.message ?? '保存失败';
+    const message = getErrorMessage(err) || '保存失败';
     markSaveError(message);
     void notifySaveFailure(activeFile.name, message, source);
     recordSaveHistory({
@@ -340,7 +343,7 @@ async function saveDirtyTabs(
   }
 
   const finalState = useStore.getState();
-  if (activeTabId && finalState.documentTabs.some((tab) => tab.id === activeTabId)) {
+  if (activeTabId && getDocumentTabsFromState(finalState).some((tab) => tab.id === activeTabId)) {
     finalState.switchDocumentTab(activeTabId);
   }
   return true;
@@ -404,9 +407,9 @@ export async function saveActiveFileAs(): Promise<boolean> {
       message: '另存为成功'
     });
     return true;
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Save as failed', err);
-    const message = err?.message ?? '另存为失败';
+    const message = getErrorMessage(err) || '另存为失败';
     markSaveError(message);
     void notifySaveFailure(activeFile.name, message, 'save-as');
     recordSaveHistory({
@@ -484,9 +487,9 @@ export async function revealActiveFile() {
 
   try {
     await revealMarkdownFile(activeFile.path);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Reveal failed', err);
-    markSaveError(err?.message ?? '无法在 Finder 中显示文件');
+    markSaveError(getErrorMessage(err) || '无法在 Finder 中显示文件');
   }
 }
 
@@ -516,9 +519,9 @@ export async function reloadActiveFileFromDisk(): Promise<boolean> {
     );
     closeSaveConflict();
     return true;
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Reload failed', err);
-    markSaveError(err?.message ?? '重新加载失败');
+    markSaveError(getErrorMessage(err) || '重新加载失败');
     return false;
   }
 }
@@ -619,7 +622,8 @@ function isSameOrChildPath(candidatePath: string, parentPath: string) {
 
 function getCurrentDocumentTabs(): DocumentTab[] {
   const state = useStore.getState();
-  if (!state.activeTabId || !state.activeFile) return state.documentTabs;
+  const documentTabs = getDocumentTabsFromState(state);
+  if (!state.activeTabId || !state.activeFile) return documentTabs;
 
   const activeSnapshot: DocumentTab = {
     id: state.activeTabId,
@@ -631,10 +635,14 @@ function getCurrentDocumentTabs(): DocumentTab[] {
     saveMessage: state.saveMessage,
     currentEditorLine: state.currentEditorLine
   };
-  const existing = state.documentTabs.findIndex((tab) => tab.id === state.activeTabId);
-  if (existing === -1) return [activeSnapshot, ...state.documentTabs];
+  const existing = documentTabs.findIndex((tab) => tab.id === state.activeTabId);
+  if (existing === -1) return [activeSnapshot, ...documentTabs];
 
-  return state.documentTabs.map((tab) => (tab.id === state.activeTabId ? activeSnapshot : tab));
+  return documentTabs.map((tab) => (tab.id === state.activeTabId ? activeSnapshot : tab));
+}
+
+function getDocumentTabsFromState(state: { documentTabs: DocumentTab[] }): DocumentTab[] {
+  return Array.isArray(state.documentTabs) ? state.documentTabs : [];
 }
 
 function collectLoadedDirectoryPaths(nodes: FileNode[], limit = 80): string[] {

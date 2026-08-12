@@ -1,4 +1,8 @@
-use std::{fs, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -7,10 +11,10 @@ use crate::app_settings::add_recent_file;
 use crate::file_kinds::{
     classify_file_path, ensure_reasonable_text_file, is_markdown_path, is_supported_image_path,
 };
-use crate::models::{
-    FileMetadata, MarkdownDocument, TextDocument,
-};
+use crate::models::{FileMetadata, MarkdownDocument, TextDocument};
 use crate::AppState;
+
+const MAX_READ_FILE_BYTES: u64 = 50 * 1024 * 1024;
 
 #[tauri::command]
 pub async fn take_startup_markdown_paths(
@@ -141,6 +145,12 @@ pub async fn reveal_markdown_file(
 
 pub(crate) async fn read_markdown_document(path: PathBuf) -> Result<MarkdownDocument, String> {
     let metadata = file_metadata(&path)?;
+    if metadata.size > MAX_READ_FILE_BYTES {
+        return Err(format!(
+            "文件过大（{}MB），请使用其他编辑器打开。",
+            metadata.size / (1024 * 1024)
+        ));
+    }
     let content = tokio::fs::read_to_string(&path)
         .await
         .map_err(|error| error.to_string())?;
@@ -155,6 +165,12 @@ pub(crate) async fn read_markdown_document(path: PathBuf) -> Result<MarkdownDocu
 pub(crate) async fn read_text_document(path: PathBuf) -> Result<TextDocument, String> {
     ensure_reasonable_text_file(&path)?;
     let metadata = file_metadata(&path)?;
+    if metadata.size > MAX_READ_FILE_BYTES {
+        return Err(format!(
+            "文件过大（{}MB），请使用其他编辑器打开。",
+            metadata.size / (1024 * 1024)
+        ));
+    }
     let content = tokio::fs::read_to_string(&path)
         .await
         .map_err(|error| error.to_string())?;

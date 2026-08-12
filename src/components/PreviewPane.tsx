@@ -72,23 +72,23 @@ export function PreviewPane() {
     h4: ({node, children, ...props}) => <PreviewHeading level={4} headings={headings} sourceLine={node?.position?.start.line} {...props}>{children}</PreviewHeading>,
     h5: ({node, children, ...props}) => <PreviewHeading level={5} headings={headings} sourceLine={node?.position?.start.line} {...props}>{children}</PreviewHeading>,
     h6: ({node, children, ...props}) => <PreviewHeading level={6} headings={headings} sourceLine={node?.position?.start.line} {...props}>{children}</PreviewHeading>,
-    p: ({children, ...props}: any) => {
+    p: ({children, ...props}) => {
       if (childrenToPlainText(children).trim() === TOC_PLACEHOLDER) {
         return <PreviewToc headings={headings} locale={locale} />;
       }
       return <p {...props}>{children}</p>;
     },
-    img: ({...props}: any) => (
+    img: ({src, alt, ...props}) => (
       <PreviewImage
-        src={typeof props.src === 'string' ? props.src : ''}
-        alt={typeof props.alt === 'string' ? props.alt : ''}
+        src={typeof src === 'string' ? src : ''}
+        alt={typeof alt === 'string' ? alt : ''}
         documentPath={activeFile?.path || ''}
         locale={locale}
       />
     ),
-    table: ({children, ...props}: any) => <PreviewTable locale={locale} {...props}>{children}</PreviewTable>,
-    th: ({...props}: any) => <th className="border-b border-border-subtle p-3 font-semibold bg-bg-panel" {...props} />,
-    td: ({...props}: any) => <td className="border-b border-border-subtle p-3" {...props} />,
+    table: ({children, ...props}) => <PreviewTable locale={locale} {...props}>{children}</PreviewTable>,
+    th: ({...props}) => <th className="border-b border-border-subtle p-3 font-semibold bg-bg-panel" {...props} />,
+    td: ({...props}) => <td className="border-b border-border-subtle p-3" {...props} />,
   }), [activeFile?.path, headings, locale]);
   const markdownContentNode = useMemo(() => (
     <Markdown
@@ -260,7 +260,7 @@ export function PreviewPane() {
   );
 }
 
-function readingFontFamily(font: 'theme' | 'sans' | 'serif' | 'mono') {
+function readingFontFamily(font: 'theme' | 'sans' | 'serif' | 'mono' | `custom:${string}`) {
   if (font.startsWith('custom:')) {
     const family = font.slice(7).trim();
     if (family) return `"${family.replace(/"/g, '\\"')}", var(--font-reading)`;
@@ -419,6 +419,14 @@ function CodeReviewBlock({
   onAskAi: (block: CodeBlockInfo) => void;
 }) {
   const highlightedCode = useMemo(() => highlightCodeQuery(block.code, query), [block.code, query]);
+  const pushSelectionToAi = () => {
+    const selection = window.getSelection()?.toString().trim() ?? '';
+    if (!selection) return false;
+    emitAiSelection({ text: selection, source: 'preview' });
+    emitAiPanelTab('ai');
+    if (!useStore.getState().aiPanelOpen) useStore.getState().toggleAiPanel();
+    return true;
+  };
 
   return (
     <div className="overflow-hidden rounded-md border border-border-subtle bg-bg-base shadow-sm">

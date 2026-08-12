@@ -2,8 +2,9 @@ import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import type { Extension } from '@codemirror/state';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useStore } from '../store';
-import { cn } from '../lib/utils';
+import { cn, getErrorMessage } from '../lib/utils';
 import { EditorView, keymap } from '@codemirror/view';
+import { highlightSelectionMatches } from '@codemirror/search';
 import {
   Bot,
   Check,
@@ -250,7 +251,7 @@ export function EditorPane() {
         sourcePath: activeFile.path,
         action: kind
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (!isAiAbortError(error)) {
         setInlineStatus(sanitizeAiError(error, locale));
         window.setTimeout(() => setInlineStatus(''), 3000);
@@ -307,7 +308,7 @@ export function EditorPane() {
         selectionTo: editorSelection.to
       });
       setInlineStatus('');
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (!isAiAbortError(error)) {
         setInlineStatus(sanitizeAiError(error, locale));
         window.setTimeout(() => setInlineStatus(''), 3000);
@@ -480,8 +481,8 @@ export function EditorPane() {
         : `Image inserted (${imageInsertMode === 'embed' ? 'embedded' : 'assets'})`);
       window.setTimeout(() => setInlineStatus(''), 2200);
       view.focus();
-    } catch (error: any) {
-      setInlineStatus(error?.message ?? String(error));
+    } catch (error: unknown) {
+      setInlineStatus(getErrorMessage(error));
       window.setTimeout(() => setInlineStatus(''), 3500);
     }
   }, [activeFile?.path, imageInsertMode, isMarkdownDocument, isReadOnly, locale]);
@@ -641,6 +642,23 @@ export function EditorPane() {
       lineHeight: "var(--inkstack-editor-line-height)"
     },
     ".cm-line": { padding: "0" },
+    ".cm-gutters": {
+      backgroundColor: "transparent",
+      borderRight: "none",
+      paddingRight: "12px"
+    },
+    ".cm-gutter.cm-lineNumbers .cm-gutterElement": {
+      paddingRight: "8px",
+      color: "var(--color-text-tertiary)"
+    },
+    ".cm-scroller": {
+      overflow: "auto",
+      scrollbarWidth: "none",
+      msOverflowStyle: "none"
+    },
+    ".cm-scroller::-webkit-scrollbar": {
+      display: "none"
+    }
   });
   const editorStyle = {
     '--inkstack-editor-width': `${editorSettings.width}px`,
@@ -658,6 +676,7 @@ export function EditorPane() {
         extensions={[
           languageExtension,
           EditorView.lineWrapping,
+          highlightSelectionMatches(),
           lightTheme,
           EditorState.readOnly.of(isReadOnly),
           EditorView.editable.of(!isReadOnly),

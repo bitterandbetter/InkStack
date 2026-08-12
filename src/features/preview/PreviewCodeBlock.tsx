@@ -14,7 +14,18 @@ function loadHighlight() {
   return highlightModulePromise;
 }
 
-export function PreviewCodeBlock({ inline, className, children, ...props }: any) {
+interface PreviewCodeBlockProps {
+  inline?: boolean;
+  className?: string;
+  children?: ReactNode;
+  node?: {
+    data?: { meta?: string };
+    position?: { start?: { line?: number } };
+  };
+  'data-meta'?: string;
+}
+
+export function PreviewCodeBlock({ inline, className, children, ...props }: PreviewCodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [highlightedHtml, setHighlightedHtml] = useState('');
