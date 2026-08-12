@@ -5,6 +5,7 @@ export const AI_CONTEXT_DOCUMENT_CHARS = 8000;
 
 export const providerKindLabels: Record<AiProviderKind, string> = {
   openai: 'OpenAI',
+  'openai-compatible': 'OpenAI 兼容',
   anthropic: 'Claude',
   gemini: 'Gemini',
   nvidia: 'NVIDIA'

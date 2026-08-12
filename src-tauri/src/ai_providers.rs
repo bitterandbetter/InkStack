@@ -29,6 +29,7 @@ pub struct AiStreamSpec {
 pub fn build_ai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {
     match request.kind.as_str() {
         "openai" => build_openai_stream_spec(request),
+        "openai-compatible" => build_openai_compatible_stream_spec(request),
         "anthropic" => build_anthropic_stream_spec(request),
         "gemini" => build_gemini_stream_spec(request),
         "nvidia" => build_nvidia_stream_spec(request),
@@ -36,15 +37,37 @@ pub fn build_ai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec,
     }
 }
 
+fn resolve_base_url(request: &AiGenerateRequest, default_env: &str, default_url: &str) -> String {
+    if let Some(url) = request.base_url.as_deref().filter(|url| !url.trim().is_empty()) {
+        return url.trim().to_string();
+    }
+    let env_name = request.base_url_env.as_deref().unwrap_or(default_env);
+    env_or_default(env_name, default_url)
+}
+
+fn resolve_api_key(request: &AiGenerateRequest, default_env: &str) -> Result<String, String> {
+    let env_name = request.api_key_env.as_deref().unwrap_or(default_env);
+    required_env(env_name)
+}
+
+fn resolve_model(request: &AiGenerateRequest, default_env: &str, default_model: &str) -> String {
+    request_model_or_env(
+        request,
+        request.model_env.as_deref().unwrap_or(default_env),
+        default_model,
+    )
+}
+
 pub async fn request_openai_compatible(
     request: AiGenerateRequest,
 ) -> Result<AiGenerateResult, String> {
-    let base_url = env_or_default(
+    let base_url = resolve_base_url(
+        &request,
         "OPENAI_BASE_URL",
-        "https://api.aicodemirror.com/api/codex/backend-api/codex/v1",
+        "https://api.openai.com/v1",
     );
-    let api_key = required_env("OPENAI_API_KEY")?;
-    let model = request_model_or_env(&request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL);
+    let api_key = resolve_api_key(&request, "OPENAI_API_KEY")?;
+    let model = resolve_model(&request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL);
     let use_responses = openai_prefers_responses_api(&model);
     let url = if use_responses {
         format!("{}/responses", base_url.trim_end_matches('/'))
@@ -136,10 +159,7 @@ pub async fn request_nvidia_compatible(
 }
 
 pub async fn request_anthropic(request: AiGenerateRequest) -> Result<AiGenerateResult, String> {
-    let base_url = env_or_default(
-        "ANTHROPIC_BASE_URL",
-        "https://api.aicodemirror.com/api/claudecode",
-    );
+    let base_url = env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com");
     let api_key = required_env("ANTHROPIC_API_KEY")?;
     let model = request_model_or_env(&request, "ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL);
     let url = anthropic_messages_url(&base_url);
@@ -284,12 +304,13 @@ pub fn extract_stream_delta(data: &serde_json::Value, parser: &AiStreamParser) -
 }
 
 fn build_openai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {
-    let base_url = env_or_default(
+    let base_url = resolve_base_url(
+        request,
         "OPENAI_BASE_URL",
-        "https://api.aicodemirror.com/api/codex/backend-api/codex/v1",
+        "https://api.openai.com/v1",
     );
-    let api_key = required_env("OPENAI_API_KEY")?;
-    let model = request_model_or_env(request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL);
+    let api_key = resolve_api_key(request, "OPENAI_API_KEY")?;
+    let model = resolve_model(request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL);
     let use_responses = openai_prefers_responses_api(&model);
     let url = if use_responses {
         format!("{}/responses", base_url.trim_end_matches('/'))
@@ -316,11 +337,33 @@ fn build_openai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec,
     })
 }
 
-fn build_anthropic_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {
-    let base_url = env_or_default(
-        "ANTHROPIC_BASE_URL",
-        "https://api.aicodemirror.com/api/claudecode",
+fn build_openai_compatible_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {
+    let base_url = resolve_base_url(
+        request,
+        "OPENAI_BASE_URL",
+        "https://api.deepseek.com/v1",
     );
+    let api_key = resolve_api_key(request, "OPENAI_API_KEY")?;
+    let model = resolve_model(request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL);
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let mut body = build_openai_body(request, &model, false);
+    body["stream"] = serde_json::json!(true);
+
+    Ok(AiStreamSpec {
+        provider: "openai-compatible".to_string(),
+        model,
+        url,
+        headers: vec![
+            ("Content-Type".to_string(), "application/json".to_string()),
+            ("Authorization".to_string(), format!("Bearer {api_key}")),
+        ],
+        body: serde_json::to_string(&body).map_err(|error| error.to_string())?,
+        parser: AiStreamParser::OpenAiChat,
+    })
+}
+
+fn build_anthropic_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {
+    let base_url = env_or_default("ANTHROPIC_BASE_URL", "https://api.anthropic.com");
     let api_key = required_env("ANTHROPIC_API_KEY")?;
     let model = request_model_or_env(request, "ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL);
     let body = build_anthropic_body(request, &model, true)?;
@@ -373,9 +416,8 @@ fn build_gemini_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec,
 }
 
 fn gemini_base_url() -> &'static str {
-    // Gemini SDK does not define a standard base-url environment variable.
-    // Keep the AICodeMirror Gemini endpoint in code, matching their integration guide.
-    "https://api.aicodemirror.com/api/gemini"
+    // Gemini official REST endpoint.
+    "https://generativelanguage.googleapis.com"
 }
 
 fn build_nvidia_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {

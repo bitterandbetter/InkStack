@@ -444,6 +444,14 @@ pub struct AiGenerateRequest {
     pub context: Option<String>,
     #[serde(default)]
     pub mode: Option<String>,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+    #[serde(default)]
+    pub model_env: Option<String>,
+    #[serde(default)]
+    pub base_url_env: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

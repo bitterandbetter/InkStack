@@ -1,14 +1,16 @@
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { invoke, listen } from './tauriRuntime';
 
-export type AiProviderKind = 'openai' | 'anthropic' | 'gemini' | 'nvidia';
+export type AiProviderKind = 'openai' | 'openai-compatible' | 'anthropic' | 'gemini' | 'nvidia';
 
 export interface AiProviderPreset {
-  id: AiProviderKind;
+  id: string;
   name: string;
+  kind: AiProviderKind;
   model: string;
   baseUrlLabel?: string;
-  fixedBaseUrl?: string;
+  baseUrlEnv?: string;
+  baseUrlDefault?: string;
   apiKeyEnv: string;
   modelEnv: string;
   models: AiModelOption[];
@@ -21,7 +23,7 @@ export interface AiModelOption {
 }
 
 export interface AiConfig {
-  providerId: AiProviderKind;
+  providerId: string;
   providerName: string;
   kind: AiProviderKind;
   model: string;
@@ -55,7 +57,7 @@ type StreamOptions = GenerateOptions & {
 
 export type AiModelTestResult = {
   ok: boolean;
-  provider: AiProviderKind;
+  provider: string;
   requestedModel: string;
   responseModel?: string | null;
   answer?: string | null;
@@ -67,9 +69,11 @@ const SESSION_CONFIG_KEY = 'inkstack.ai.config.v2';
 export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
   {
     id: 'openai',
-    name: 'AICodeMirror OpenAI',
+    name: 'OpenAI',
+    kind: 'openai',
     model: 'gpt-5.5',
     baseUrlLabel: 'OPENAI_BASE_URL',
+    baseUrlDefault: 'https://api.openai.com/v1',
     apiKeyEnv: 'OPENAI_API_KEY',
     modelEnv: 'OPENAI_MODEL',
     models: [
@@ -100,9 +104,11 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
   },
   {
     id: 'anthropic',
-    name: 'AICodeMirror Claude',
+    name: 'Anthropic Claude',
+    kind: 'anthropic',
     model: 'claude-opus-4-7',
     baseUrlLabel: 'ANTHROPIC_BASE_URL',
+    baseUrlDefault: 'https://api.anthropic.com',
     apiKeyEnv: 'ANTHROPIC_API_KEY',
     modelEnv: 'ANTHROPIC_MODEL',
     models: [
@@ -126,9 +132,11 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
   },
   {
     id: 'gemini',
-    name: 'AICodeMirror Gemini',
+    name: 'Google Gemini',
+    kind: 'gemini',
     model: 'gemini-3.1-pro-preview',
-    fixedBaseUrl: 'https://api.aicodemirror.com/api/gemini',
+    baseUrlLabel: 'GEMINI_BASE_URL',
+    baseUrlDefault: 'https://generativelanguage.googleapis.com',
     apiKeyEnv: 'GEMINI_API_KEY',
     modelEnv: 'GEMINI_MODEL',
     models: [
@@ -145,6 +153,7 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
   {
     id: 'nvidia',
     name: 'NVIDIA NIM',
+    kind: 'nvidia',
     model: 'meta/llama-3.1-8b-instruct',
     baseUrlLabel: 'NVIDIA_BASE_URL',
     apiKeyEnv: 'NVIDIA_API_KEY',
@@ -164,12 +173,87 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
       { id: 'qwen/qwen3-next-80b-a3b-instruct', name: 'Qwen3 Next 80B A3B Instruct' },
       { id: 'deepseek-ai/deepseek-r1', name: 'DeepSeek R1' }
     ]
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    kind: 'openai-compatible',
+    model: 'deepseek-v4-flash',
+    baseUrlEnv: 'DEEPSEEK_BASE_URL',
+    baseUrlDefault: 'https://api.deepseek.com',
+    apiKeyEnv: 'DEEPSEEK_API_KEY',
+    modelEnv: 'DEEPSEEK_MODEL',
+    models: [
+      { id: '', name: '读取 DEEPSEEK_MODEL' },
+      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', note: '高速低成本' },
+      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', note: '高性能推理' },
+      { id: 'deepseek-v4', name: 'DeepSeek V4' }
+    ]
+  },
+  {
+    id: 'kimi',
+    name: 'Kimi（月之暗面）',
+    kind: 'openai-compatible',
+    model: 'kimi-k3',
+    baseUrlEnv: 'MOONSHOT_BASE_URL',
+    baseUrlDefault: 'https://api.moonshot.ai/v1',
+    apiKeyEnv: 'MOONSHOT_API_KEY',
+    modelEnv: 'MOONSHOT_MODEL',
+    models: [
+      { id: '', name: '读取 MOONSHOT_MODEL' },
+      { id: 'kimi-k3', name: 'Kimi K3', note: '旗舰，1M 上下文' },
+      { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', note: '编程专用' },
+      { id: 'kimi-k2.6', name: 'Kimi K2.6' },
+      { id: 'kimi-k2.5', name: 'Kimi K2.5', note: '原生多模态' }
+    ]
+  },
+  {
+    id: 'qwen',
+    name: '通义千问（阿里云百炼）',
+    kind: 'openai-compatible',
+    model: 'qwen3.8-max',
+    baseUrlEnv: 'DASHSCOPE_BASE_URL',
+    baseUrlDefault: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiKeyEnv: 'DASHSCOPE_API_KEY',
+    modelEnv: 'DASHSCOPE_MODEL',
+    models: [
+      { id: '', name: '读取 DASHSCOPE_MODEL' },
+      { id: 'qwen3.8-max', name: 'Qwen3.8 Max', note: '多模态旗舰' },
+      { id: 'qwen3.7-max', name: 'Qwen3.7 Max' },
+      { id: 'qwen3.6-plus', name: 'Qwen3.6 Plus', note: '均衡推荐' },
+      { id: 'qwen3.6-flash', name: 'Qwen3.6 Flash', note: '最快最省' },
+      { id: 'qwen3.5-plus', name: 'Qwen3.5 Plus' },
+      { id: 'qwen-max', name: 'Qwen Max' },
+      { id: 'qwen-plus', name: 'Qwen Plus' },
+      { id: 'qwen-turbo', name: 'Qwen Turbo' },
+      { id: 'qwen-flash', name: 'Qwen Flash' },
+      { id: 'qwen-long', name: 'Qwen Long' }
+    ]
+  },
+  {
+    id: 'zhipu',
+    name: '智谱 GLM',
+    kind: 'openai-compatible',
+    model: 'glm-5.2',
+    baseUrlEnv: 'ZHIPU_BASE_URL',
+    baseUrlDefault: 'https://open.bigmodel.cn/api/paas/v4',
+    apiKeyEnv: 'ZHIPU_API_KEY',
+    modelEnv: 'ZHIPU_MODEL',
+    models: [
+      { id: '', name: '读取 ZHIPU_MODEL' },
+      { id: 'glm-5.2', name: 'GLM-5.2', note: '旗舰，1M 上下文' },
+      { id: 'glm-5', name: 'GLM-5' },
+      { id: 'glm-5-plus', name: 'GLM-5 Plus' },
+      { id: 'glm-5-air', name: 'GLM-5 Air' },
+      { id: 'glm-5-flash', name: 'GLM-5 Flash', note: '免费档' },
+      { id: 'glm-5-thinking', name: 'GLM-5 Thinking' }
+    ]
   }
 ];
 
 export const DEFAULT_AI_CONFIG: AiConfig = {
   providerId: 'openai',
-  providerName: 'AICodeMirror OpenAI',
+  providerName: 'OpenAI',
   kind: 'openai',
   model: 'gpt-5.5',
   temperature: 0.4
@@ -191,8 +275,27 @@ export function applyProviderPreset(config: AiConfig, presetId: string): AiConfi
     ...config,
     providerId: preset.id,
     providerName: preset.name,
-    kind: preset.id,
+    kind: preset.kind,
     model: preset.model
+  };
+}
+
+function buildAiRequestPayload(
+  config: AiConfig,
+  options: GenerateOptions & { modeOverride?: string; temperature?: number }
+) {
+  const preset = getProviderPreset(config.providerId);
+  return {
+    kind: config.kind,
+    model: config.model,
+    temperature: options.temperature ?? config.temperature,
+    prompt: options.prompt,
+    context: options.context ?? null,
+    mode: options.modeOverride ?? options.mode ?? 'chat',
+    baseUrl: preset?.baseUrlDefault ?? null,
+    baseUrlEnv: preset?.baseUrlEnv ?? null,
+    apiKeyEnv: preset?.apiKeyEnv ?? null,
+    modelEnv: preset?.modelEnv ?? null
   };
 }
 
@@ -245,14 +348,11 @@ export async function modifyTextWithAI(
 export async function testAiModel(config: AiConfig): Promise<AiModelTestResult> {
   const normalized = normalizeAiConfig(config);
   return withTimeout(invoke<AiModelTestResult>('test_ai_model', {
-    request: {
-      kind: normalized.kind,
-      model: normalized.model,
-      temperature: 0,
+    request: buildAiRequestPayload(normalized, {
       prompt: 'Reply with only the exact model identifier you are serving, if available.',
-      context: null,
-      mode: 'model_test'
-    }
+      modeOverride: 'model_test',
+      temperature: 0
+    })
   }), 65_000);
 }
 
@@ -262,14 +362,7 @@ async function generateText(config: AiConfig, options: GenerateOptions): Promise
   throwIfAborted(options.signal);
 
   const result = await withTimeout(invoke<TauriAiGenerateResult>('generate_ai_text', {
-    request: {
-      kind: normalized.kind,
-      model: normalized.model,
-      temperature: normalized.temperature,
-      prompt: options.prompt,
-      context: options.context ?? null,
-      mode: options.mode ?? 'chat'
-    }
+    request: buildAiRequestPayload(normalized, options)
   }), 65_000, options.signal);
 
   throwIfAborted(options.signal);
@@ -359,14 +452,7 @@ async function generateTextStream(config: AiConfig, options: StreamOptions): Pro
 
         await invoke('generate_ai_text_stream', {
           requestId,
-          request: {
-            kind: normalized.kind,
-            model: normalized.model,
-            temperature: normalized.temperature,
-            prompt: options.prompt,
-            context: options.context ?? null,
-            mode: options.mode ?? 'chat'
-          }
+          request: buildAiRequestPayload(normalized, options)
         });
       } catch (error) {
         fail(error);
@@ -443,7 +529,7 @@ function normalizeAiConfig(config: AiConfig): AiConfig {
     ...config,
     providerId: preset.id,
     providerName: preset.name,
-    kind: preset.id,
+    kind: preset.kind,
     model: config.model.trim(),
     temperature: Number.isFinite(config.temperature) ? config.temperature : DEFAULT_AI_CONFIG.temperature
   };

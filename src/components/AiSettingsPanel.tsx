@@ -51,7 +51,7 @@ export function AiSettingsPanel({
     <>
       <div className="space-y-1">
         <label className="text-[11px] font-bold uppercase tracking-wider text-text-tertiary">
-          {locale === 'zh' ? 'AICodeMirror 接入' : 'AICodeMirror API'}
+          {locale === 'zh' ? 'AI 提供商接入' : 'AI Provider API'}
         </label>
         <select
           value={draftConfig.providerId}
@@ -205,8 +205,8 @@ export function AiSettingsPanel({
         </p>
         <p className="mt-2">
           {locale === 'zh'
-            ? '模型清单以官方 API 文档可确认的文本生成模型为主；标注 AICodeMirror 的条目需要用测试按钮验证当前账号是否支持。'
-            : 'The list prioritizes text-generation models confirmed by official API docs; AICodeMirror-marked entries should be verified with the test button.'}
+            ? '模型清单以官方 API 文档可确认的文本生成模型为主，随时间更新；若你的账号支持其他模型，可修改 DEEPSEEK_MODEL 等环境变量后手动输入。'
+            : 'The list prioritizes text-generation models confirmed by official API docs and updates over time; if your account supports other models, set DEEPSEEK_MODEL etc. and type the model name manually.'}
         </p>
         <p className="mt-2">
           {locale === 'zh'
@@ -217,9 +217,9 @@ export function AiSettingsPanel({
           {activePreset?.baseUrlLabel ? `${activePreset.baseUrlLabel}: ` : ''}
           {activePreset?.apiKeyEnv}: {activePreset?.modelEnv}: INKSTACK_AI_SYSTEM_PROMPT
         </div>
-        {activePreset?.fixedBaseUrl && (
+        {activePreset?.baseUrlDefault && (
           <div className="mt-2 rounded bg-bg-panel px-2 py-1.5 font-mono text-[11px] text-text-secondary">
-            Base URL: {activePreset.fixedBaseUrl}
+            Base URL: {activePreset.baseUrlDefault}
           </div>
         )}
       </div>

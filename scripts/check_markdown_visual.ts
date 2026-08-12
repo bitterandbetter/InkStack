@@ -51,7 +51,8 @@ const hasRootViewportLock = sourceIncludes('src/index.css', 'html,\n  body,\n  #
   && sourceIncludes('src/index.css', 'overflow: hidden;')
   && sourceIncludes('src/App.tsx', 'h-[100dvh]')
   && sourceIncludes('src/App.tsx', 'min-h-0 flex-1');
-const hasThemePanels = sourceIncludes('src/components/AiSettingsPanel.tsx', 'AICodeMirror API');
+const hasThemePanels = sourceIncludes('src/components/AiSettingsPanel.tsx', 'AI 提供商接入')
+  && sourceIncludes('src/lib/ai.ts', "id: 'deepseek'");
 const hasAiContextBudgetWarning = sourceIncludes('src/components/AiContextDialog.tsx', 'tokens > 12_000')
   && sourceIncludes('src/components/AiContextDialog.tsx', 'context is large');
 const hasDesktopCodeView = sourceIncludes('src/components/CodeBlocksPanel.tsx', 'Diff previous')

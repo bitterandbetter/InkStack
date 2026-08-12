@@ -65,7 +65,7 @@ async function postJson(url, headers, body) {
 }
 
 async function testOpenAI(model) {
-  const baseUrl = envOrDefault('OPENAI_BASE_URL', 'https://api.aicodemirror.com/api/codex/backend-api/codex/v1').replace(/\/$/, '');
+  const baseUrl = envOrDefault('OPENAI_BASE_URL', 'https://api.openai.com/v1').replace(/\/$/, '');
   const apiKey = requiredEnv('OPENAI_API_KEY');
   const useResponses = openaiUsesResponses(model);
   const body = useResponses
@@ -98,7 +98,7 @@ async function testOpenAI(model) {
 }
 
 async function testClaude(model) {
-  const baseUrl = envOrDefault('ANTHROPIC_BASE_URL', 'https://api.aicodemirror.com/api/claudecode').replace(/\/$/, '');
+  const baseUrl = envOrDefault('ANTHROPIC_BASE_URL', 'https://api.anthropic.com').replace(/\/$/, '');
   const apiKey = requiredEnv('ANTHROPIC_API_KEY');
   const data = await postJson(`${baseUrl}/messages`, {
     'Content-Type': 'application/json',
@@ -118,7 +118,7 @@ async function testClaude(model) {
 }
 
 async function testGemini(model) {
-  const baseUrl = envOrDefault('GEMINI_BASE_URL', 'https://api.aicodemirror.com/api/gemini').replace(/\/$/, '');
+  const baseUrl = envOrDefault('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com').replace(/\/$/, '');
   const apiKey = requiredEnv('GEMINI_API_KEY');
   const data = await postJson(`${baseUrl}/v1beta/models/${model}:generateContent`, {
     'Content-Type': 'application/json',

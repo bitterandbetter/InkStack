@@ -32,8 +32,8 @@ InkStack（墨栈）是一款面向 macOS 的本地优先、AI 原生的 Markdow
 - AI 上下文确认机制：发送前展示并允许调整本次发送的选区、当前文件或工作区上下文。
 - 文档级 Diff 审查：AI 改写结果以行级 / 词级 diff 呈现，可按变更块逐块接受、拒绝或重新生成，避免直接覆盖正文。
 - 行内 AI：编辑器内选中文字后可直接改写、润色、扩写、翻译、总结、提问，结果以内联草稿卡片预览。
-- 支持四种 AI 提供商预设：OpenAI 兼容接口、Anthropic Claude、Google Gemini、NVIDIA NIM，模型选择器可覆盖默认模型。
-- API Key 从本机环境变量读取，绝不进入前端源码或明文持久化（可参考 `.env.example` 配置 `OPENAI_*` / `ANTHROPIC_*` / `GEMINI_*` 环境变量）。
+- 支持多家 AI 提供商预设：OpenAI、Anthropic Claude、Google Gemini、NVIDIA NIM，以及 DeepSeek、Kimi（月之暗面）、通义千问（阿里云百炼）、智谱 GLM 等国内厂商，模型选择器可覆盖默认模型。
+- API Key 从本机环境变量读取，绝不进入前端源码或明文持久化（可参考 `.env.example` 配置 `OPENAI_*` / `ANTHROPIC_*` / `GEMINI_*` / `DEEPSEEK_*` / `MOONSHOT_*` / `DASHSCOPE_*` / `ZHIPU_*` 环境变量）。
 
 ### 知识图谱
 

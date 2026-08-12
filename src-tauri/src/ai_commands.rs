@@ -31,7 +31,7 @@ pub async fn generate_ai_text(request: AiGenerateRequest) -> Result<AiGenerateRe
     let request = normalize_ai_request(request)?;
 
     match request.kind.as_str() {
-        "openai" => request_openai_compatible(request)
+        "openai" | "openai-compatible" => request_openai_compatible(request)
             .await
             .map(|response| AiGenerateResult {
                 text: response.text,
@@ -136,7 +136,9 @@ pub async fn test_ai_model(request: AiGenerateRequest) -> Result<AiModelTestResu
 
     let provider = request.kind.clone();
     let requested_model = match request.kind.as_str() {
-        "openai" => request_model_or_env(&request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
+        "openai" | "openai-compatible" => {
+            request_model_or_env(&request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
+        }
         "anthropic" => request_model_or_env(&request, "ANTHROPIC_MODEL", DEFAULT_ANTHROPIC_MODEL),
         "gemini" => request_model_or_env(&request, "GEMINI_MODEL", DEFAULT_GEMINI_MODEL),
         "nvidia" => request_model_or_env(&request, "NVIDIA_MODEL", DEFAULT_NVIDIA_MODEL),
@@ -144,7 +146,7 @@ pub async fn test_ai_model(request: AiGenerateRequest) -> Result<AiModelTestResu
     };
 
     let result = match request.kind.as_str() {
-        "openai" => request_openai_compatible(request).await,
+        "openai" | "openai-compatible" => request_openai_compatible(request).await,
         "anthropic" => request_anthropic(request).await,
         "gemini" => request_gemini(request).await,
         "nvidia" => request_nvidia_compatible(request).await,
