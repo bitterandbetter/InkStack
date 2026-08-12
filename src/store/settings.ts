@@ -1,6 +1,8 @@
 import {
   applyThemeState,
+  isDarkBuiltInThemeId,
   loadThemeState,
+  pairedThemeIdForMode,
   saveThemeState,
   type ThemeOption,
   type ThemeState
@@ -221,16 +223,23 @@ export function createSettingsSlice(set: any, get: any): SettingsState {
       set({ themeState: state, isDarkMode: state.colorMode === 'dark' });
     },
     setActiveThemeId: (themeId, importedThemeCss) => set((state: SettingsState) => {
-      const next = { ...state.themeState, activeThemeId: themeId };
+      const colorMode = themeId.startsWith('imported:')
+        ? state.themeState.colorMode
+        : (isDarkBuiltInThemeId(themeId) ? 'dark' : 'light');
+      const next: ThemeState = { ...state.themeState, activeThemeId: themeId, colorMode };
       if (importedThemeCss !== undefined) {
         next.importedThemeCss = importedThemeCss;
       }
       applyThemeState(next);
       saveThemeState(next);
-      return { themeState: next };
+      return { themeState: next, isDarkMode: colorMode === 'dark' };
     }),
     setThemeMode: (mode) => set((state: SettingsState) => {
-      const next = { ...state.themeState, colorMode: mode };
+      const next: ThemeState = {
+        ...state.themeState,
+        activeThemeId: pairedThemeIdForMode(state.themeState.activeThemeId, mode),
+        colorMode: mode
+      };
       applyThemeState(next);
       saveThemeState(next);
       return { themeState: next, isDarkMode: mode === 'dark' };
@@ -245,6 +254,7 @@ export function createSettingsSlice(set: any, get: any): SettingsState {
       const nextMode: 'light' | 'dark' = state.themeState.colorMode === 'dark' ? 'light' : 'dark';
       const next: ThemeState = {
         ...state.themeState,
+        activeThemeId: pairedThemeIdForMode(state.themeState.activeThemeId, nextMode),
         colorMode: nextMode
       };
       applyThemeState(next);

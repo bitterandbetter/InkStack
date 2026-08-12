@@ -43,7 +43,7 @@ import { useStore } from '../store';
 import { getSettings, searchTextFiles, type AppSettings, type MarkdownSearchResult } from '../lib/fs';
 import { openTextPath, openWorkspacePath } from '../lib/desktopActions';
 import { cn } from '../lib/utils';
-import { BUILT_IN_THEMES } from '../lib/themes';
+import { BUILT_IN_THEMES, isDarkBuiltInThemeId } from '../lib/themes';
 import { emitEditorCommand, type MarkdownEditorCommand } from '../lib/appEvents';
 import type { EditorAiPromptKey } from '../lib/aiPrompts';
 import { fileNameFromPath } from '../lib/path';
@@ -359,7 +359,7 @@ export function CommandPalette() {
         subtitle: themeState.activeThemeId === theme.id
           ? (locale === 'zh' ? '当前主题' : 'Current theme')
           : (locale === 'zh' ? '内置主题' : 'Built-in theme'),
-        icon: theme.id === 'dark' || theme.id === 'code-docs' ? <Moon size={15} /> : <Sun size={15} />,
+        icon: isDarkBuiltInThemeId(theme.id) ? <Moon size={15} /> : <Sun size={15} />,
         run: () => setActiveThemeId(theme.id, '')
       })),
       {

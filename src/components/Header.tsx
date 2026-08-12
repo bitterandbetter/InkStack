@@ -36,6 +36,15 @@ export function Header() {
       }
     ];
   }, [themeState.activeThemeId, themeState.importedThemes]);
+  const readingThemeGroups = useMemo(() => {
+    const groups = new Map<string, typeof readingThemeOptions>();
+    for (const theme of readingThemeOptions) {
+      const group = (locale === 'zh' ? theme.groupZh : theme.groupEn)
+        || (locale === 'zh' ? '导入主题' : 'Imported');
+      groups.set(group, [...(groups.get(group) || []), theme]);
+    }
+    return [...groups.entries()];
+  }, [locale, readingThemeOptions]);
 
   useEffect(() => {
     if (!readingSettingsOpen) return;
@@ -254,8 +263,12 @@ export function Header() {
                   onChange={(event) => setActiveThemeId(event.target.value, '')}
                   className="w-full rounded-md border border-border-subtle bg-bg-panel px-2.5 py-1.5 text-[12px] text-text-primary focus:border-accent focus:outline-none"
                 >
-                  {readingThemeOptions.map((theme) => (
-                    <option key={theme.id} value={theme.id}>{theme.name}</option>
+                  {readingThemeGroups.map(([group, themes]) => (
+                    <optgroup key={group} label={group}>
+                      {themes.map((theme) => (
+                        <option key={theme.id} value={theme.id}>{theme.name}</option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </label>

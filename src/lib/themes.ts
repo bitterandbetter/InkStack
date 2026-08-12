@@ -1,6 +1,7 @@
 import { invoke } from './tauriRuntime';
+import { GENERATED_THEMES, type GeneratedThemeId } from './themes.generated';
 
-export type BuiltInThemeId =
+type CoreBuiltInThemeId =
   | 'light'
   | 'dark'
   | 'focus'
@@ -14,6 +15,8 @@ export type BuiltInThemeId =
   | 'everforest'
   | 'flexoki'
   | 'academic';
+
+export type BuiltInThemeId = CoreBuiltInThemeId | GeneratedThemeId;
 
 export interface ThemeOption {
   id: string;
@@ -56,7 +59,7 @@ const MODE_OVERRIDE_STYLE_ID = 'inkstack-mode-override-theme';
 
 type ThemeVariables = Record<string, string>;
 
-const THEME_VARIABLES: Record<BuiltInThemeId, ThemeVariables> = {
+const CORE_THEME_VARIABLES: Record<CoreBuiltInThemeId, ThemeVariables> = {
   light: {
     '--font-reading': 'var(--font-sans)',
     '--font-editor': 'var(--font-mono)',
@@ -410,7 +413,22 @@ const THEME_VARIABLES: Record<BuiltInThemeId, ThemeVariables> = {
   }
 };
 
-const DARK_BUILT_IN_THEME_IDS = new Set<BuiltInThemeId>(['dark', 'code-docs', 'nord', 'dracula']);
+const THEME_VARIABLES = {
+  ...CORE_THEME_VARIABLES,
+  ...Object.fromEntries(GENERATED_THEMES.map((theme) => [theme.meta.id, theme.variables]))
+} as Record<BuiltInThemeId, ThemeVariables>;
+
+const GENERATED_THEME_CONTENT_CSS = Object.fromEntries(
+  GENERATED_THEMES.map((theme) => [theme.meta.id, theme.contentCss])
+) as Partial<Record<BuiltInThemeId, string>>;
+
+const DARK_BUILT_IN_THEME_IDS = new Set<BuiltInThemeId>([
+  'dark',
+  'code-docs',
+  'nord',
+  'dracula',
+  ...GENERATED_THEMES.filter((theme) => theme.meta.dark).map((theme) => theme.meta.id)
+]);
 
 export const BUILT_IN_THEMES: ThemeOption[] = [
   themeMeta('light', 'InkStack Light', '默认清爽浅色，适合日常编辑。', 'Default clean light theme for everyday editing.', '基础', 'Base'),
@@ -425,7 +443,17 @@ export const BUILT_IN_THEMES: ThemeOption[] = [
   themeMeta('dracula', 'Dracula Soft', '高辨识深色代码主题，降低了原色饱和度。', 'Recognizable dark code theme with softened saturation.', '代码', 'Code'),
   themeMeta('everforest', 'Everforest Read', '林地暖绿护眼主题，适合资料阅读。', 'Warm green comfort theme for reading and notes.', '护眼', 'Comfort'),
   themeMeta('flexoki', 'Flexoki Notes', '墨色纸张风格，适合知识卡片和日记。', 'Ink-on-paper note theme for journals and cards.', '纸面', 'Paper'),
-  themeMeta('academic', 'Academic Print', '学术论文式中性纸面，适合导出前校对。', 'Academic print-like neutral theme for proofreading.', '纸面', 'Paper')
+  themeMeta('academic', 'Academic Print', '学术论文式中性纸面，适合导出前校对。', 'Academic print-like neutral theme for proofreading.', '纸面', 'Paper'),
+  ...GENERATED_THEMES.map(({ meta }) => ({
+    id: meta.id,
+    name: meta.name,
+    kind: 'built-in' as const,
+    descriptionZh: meta.descriptionZh,
+    descriptionEn: meta.descriptionEn,
+    groupZh: meta.groupZh,
+    groupEn: meta.groupEn,
+    swatches: meta.swatches
+  }))
 ];
 
 export const DEFAULT_THEME_STATE: ThemeState = {
@@ -466,7 +494,7 @@ export function applyThemeState(state: ThemeState) {
   document.documentElement.dataset.inkstackMode = normalized.colorMode;
   setBuiltInThemeCss(isBuiltInThemeId(themeId) ? BUILT_IN_THEME_CSS[themeId] : '');
   setImportedThemeCss(isImportedTheme(themeId, normalized.importedThemes) ? normalized.importedThemeCss : '');
-  setModeOverrideCss(normalized.colorMode);
+  setModeOverrideCss(normalized.colorMode, isDarkBuiltInThemeId(themeId));
   document.documentElement.classList.toggle('dark', isDark);
 }
 
@@ -538,6 +566,25 @@ export function isDarkBuiltInThemeId(themeId: string) {
   return isBuiltInThemeId(themeId) && DARK_BUILT_IN_THEME_IDS.has(themeId);
 }
 
+export function pairedThemeIdForMode(themeId: string, mode: ThemeState['colorMode']) {
+  if (!isBuiltInThemeId(themeId)) return themeId;
+
+  if (mode === 'dark') {
+    if (isDarkBuiltInThemeId(themeId)) return themeId;
+    if (themeId === 'light') return 'dark';
+    const darkId = `${themeId}-dark`;
+    return isBuiltInThemeId(darkId) ? darkId : 'dark';
+  }
+
+  if (!isDarkBuiltInThemeId(themeId)) return themeId;
+  if (themeId === 'dark') return 'light';
+  if (themeId.endsWith('-dark')) {
+    const lightId = themeId.slice(0, -'-dark'.length);
+    if (isBuiltInThemeId(lightId)) return lightId;
+  }
+  return 'light';
+}
+
 export function isImportedTheme(themeId: string, importedThemes: ThemeOption[]) {
   return themeId.startsWith('imported:') && importedThemes.some((theme) => theme.id === themeId);
 }
@@ -572,9 +619,9 @@ function setBuiltInThemeCss(css: string) {
   style.textContent = css;
 }
 
-function setModeOverrideCss(mode: ThemeState['colorMode']) {
+function setModeOverrideCss(mode: ThemeState['colorMode'], hasNativeDarkPalette: boolean) {
   let style = document.getElementById(MODE_OVERRIDE_STYLE_ID) as HTMLStyleElement | null;
-  if (mode !== 'dark') {
+  if (mode !== 'dark' || hasNativeDarkPalette) {
     style?.remove();
     return;
   }
@@ -628,7 +675,8 @@ function cssForTheme(themeId: BuiltInThemeId, selector: string) {
   const body = Object.entries(variables)
     .map(([name, value]) => `  ${name}: ${value};`)
     .join('\n');
-  return `${selector} {\n${body}\n}\n`;
+  const contentCss = GENERATED_THEME_CONTENT_CSS[themeId] || '';
+  return `${selector} {\n${body}\n}\n${contentCss}`;
 }
 
 function normalizeThemeState(value: Partial<ThemeState>): ThemeState {
