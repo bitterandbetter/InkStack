@@ -124,13 +124,38 @@ fi
 shopt -s nullglob
 dmg_files=($DMG_GLOB)
 if (( ${#dmg_files[@]} > 0 )); then
-  echo "PASS DMG exists: ${dmg_files[0]}"
-  if hdiutil imageinfo "${dmg_files[0]}" >/dev/null 2>&1; then
+  dmg_path="${dmg_files[0]}"
+  echo "PASS DMG exists: $dmg_path"
+  if hdiutil imageinfo "$dmg_path" >/dev/null 2>&1; then
     echo "PASS DMG imageinfo verifies"
   else
     echo "FAIL DMG imageinfo failed" >&2
     exit 1
   fi
+
+  attach_output=$(hdiutil attach -nobrowse -readonly "$dmg_path")
+  dmg_mount=$(printf '%s\n' "$attach_output" | sed -n 's#^.*\(/Volumes/.*\)$#\1#p' | tail -1)
+  if [[ -z "$dmg_mount" || ! -d "$dmg_mount/InkStack.app" ]]; then
+    echo "FAIL InkStack.app missing inside DMG" >&2
+    exit 1
+  fi
+  trap 'hdiutil detach "$dmg_mount" >/dev/null 2>&1 || true' EXIT
+
+  dmg_app="$dmg_mount/InkStack.app"
+  dmg_info="$dmg_app/Contents/Info.plist"
+  dmg_executable="$dmg_app/Contents/MacOS/inkstack"
+  dmg_bundle_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$dmg_info")
+  dmg_version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$dmg_info")
+
+  [[ "$dmg_bundle_id" == "com.inkstack.desktop" ]] || { echo "FAIL unexpected DMG bundle identifier: $dmg_bundle_id" >&2; exit 1; }
+  [[ "$dmg_version" == "1.1.0" ]] || { echo "FAIL unexpected DMG app version: $dmg_version" >&2; exit 1; }
+  file "$dmg_executable" | grep -q "arm64" || { echo "FAIL DMG app executable is not arm64" >&2; exit 1; }
+  codesign --verify --deep --strict "$dmg_app" || { echo "FAIL DMG app signature verification failed" >&2; exit 1; }
+
+  echo "PASS DMG contains InkStack $dmg_version ($dmg_bundle_id), arm64"
+  echo "PASS DMG app bundle signature verifies"
+  hdiutil detach "$dmg_mount" >/dev/null
+  trap - EXIT
 else
   echo "WARN DMG not found. Run npm run tauri:build:mac after enabling the dmg target."
 fi
