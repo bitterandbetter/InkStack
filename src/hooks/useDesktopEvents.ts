@@ -10,6 +10,7 @@ import {
 } from '../lib/desktopActions';
 import { useStore } from '../store';
 import { isAppCommandId, runAppCommand } from '../lib/appCommands';
+import { canAutoSaveFile } from '../lib/savePolicy';
 
 type DragDropPayload = {
   paths?: string[];
@@ -32,11 +33,11 @@ export function useDesktopEvents() {
       window.clearTimeout(autoSaveRetryRef.current);
       autoSaveRetryRef.current = null;
     }
-    if (!autoSaveEnabled || !isDirty || !activeFile?.path || activeFile.readOnly || !activeFile.isMarkdown) return;
+    if (!autoSaveEnabled || !isDirty || !canAutoSaveFile(activeFile)) return;
 
     const timeoutId = window.setTimeout(() => {
       const state = useStore.getState();
-      if (!state.autoSaveEnabled || !state.isDirty || !state.activeFile?.path || state.activeFile.readOnly || !state.activeFile.isMarkdown) return;
+      if (!state.autoSaveEnabled || !state.isDirty || !canAutoSaveFile(state.activeFile)) return;
       const snapshotPath = state.activeFile.path;
       const snapshotContent = state.activeFileContent;
       void saveActiveFile('auto').then((saved) => {
@@ -46,11 +47,10 @@ export function useDesktopEvents() {
           if (
             !latest.autoSaveEnabled ||
             !latest.isDirty ||
-            !latest.activeFile?.path ||
+            !canAutoSaveFile(latest.activeFile) ||
             latest.activeFile.path !== snapshotPath ||
             latest.activeFileContent !== snapshotContent ||
-            latest.activeFile.readOnly ||
-            !latest.activeFile.isMarkdown
+            latest.activeFile.readOnly
           ) {
             return;
           }

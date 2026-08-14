@@ -6,6 +6,7 @@ import { ensureCanReplaceWorkspaceDocuments } from '../lib/desktopActions';
 
 export function CloseConfirmDialog() {
   const [show, setShow] = useState(false);
+  const [actionError, setActionError] = useState('');
   const locale = useStore((s) => s.locale);
 
   useEffect(() => {
@@ -14,6 +15,7 @@ export function CloseConfirmDialog() {
     const setupListener = async () => {
       try {
         unlistenFn = await listen('close-confirmed', () => {
+          setActionError('');
           setShow(true);
         });
       } catch (error) {
@@ -29,16 +31,20 @@ export function CloseConfirmDialog() {
   }, []);
 
   const handleMinimize = async () => {
-    setShow(false);
+    setActionError('');
     try {
       await invoke('minimize_window');
+      setShow(false);
     } catch (error) {
       console.error('Failed to minimize:', error);
+      setActionError(locale === 'zh'
+        ? `最小化失败：${error instanceof Error ? error.message : String(error)}`
+        : `Could not minimize: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
   const handleQuit = async () => {
-    setShow(false);
+    setActionError('');
     try {
       if (!(await ensureCanReplaceWorkspaceDocuments())) {
         setShow(true);
@@ -47,6 +53,9 @@ export function CloseConfirmDialog() {
       await invoke('confirm_close_app');
     } catch (error) {
       console.error('Failed to quit:', error);
+      setActionError(locale === 'zh'
+        ? `退出失败：${error instanceof Error ? error.message : String(error)}`
+        : `Could not quit: ${error instanceof Error ? error.message : String(error)}`);
       setShow(true);
     }
   };
@@ -69,6 +78,11 @@ export function CloseConfirmDialog() {
               ? '你是想最小化窗口，还是完全退出应用？'
               : 'Would you like to minimize the window or quit the application?'}
           </p>
+          {actionError && (
+            <p role="alert" className="mt-3 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-600 dark:text-red-300">
+              {actionError}
+            </p>
+          )}
         </div>
         <div className="flex justify-end gap-2 border-t border-border-subtle px-5 py-3">
           <button

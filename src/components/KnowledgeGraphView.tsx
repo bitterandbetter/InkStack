@@ -244,6 +244,9 @@ export function KnowledgeGraphView({ locale, onClose }: KnowledgeGraphViewProps)
       onClose();
     } catch (err: unknown) {
       console.error('Failed to open document', err);
+      setError(locale === 'zh'
+        ? `无法打开文档：${err instanceof Error ? err.message : String(err)}`
+        : `Could not open document: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 

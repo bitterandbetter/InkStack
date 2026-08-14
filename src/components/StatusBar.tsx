@@ -1,12 +1,15 @@
 import { useStore } from '../store';
+import { canAutoSaveFile } from '../lib/savePolicy';
 
 export function StatusBar() {
-  const { activeFileContent, locale, saveState, saveMessage, activeFile, autoSaveEnabled } = useStore();
+  const { activeFileContent, locale, saveState, saveMessage, activeFile, autoSaveEnabled, isDirty } = useStore();
 
   const words = activeFileContent.trim().split(/\s+/).filter(w => w.length > 0).length;
   const lines = activeFileContent.split('\n').length || 1;
-  const canAutoSave = Boolean(autoSaveEnabled && activeFile?.path && activeFile.isMarkdown && !activeFile.readOnly);
-  const saveLabel = activeFile?.readOnly ? (locale === 'zh' ? '只读' : 'Read only') : saveState === 'dirty' && canAutoSave
+  const canAutoSave = Boolean(autoSaveEnabled && canAutoSaveFile(activeFile));
+  const saveLabel = activeFile?.readOnly ? (locale === 'zh' ? '只读' : 'Read only') : activeFile?.isUntitled && isDirty
+    ? (locale === 'zh' ? '新文档待首次保存' : 'New document — save once')
+    : saveState === 'dirty' && canAutoSave
     ? (locale === 'zh' ? '等待自动保存' : 'Autosave pending')
     : {
     idle: locale === 'zh' ? '空闲' : 'Idle',
@@ -37,7 +40,7 @@ export function StatusBar() {
         </div>
         <div className="w-px h-3 bg-border-subtle"></div>
         <span className="max-w-[240px] truncate">
-          {activeFile?.path || activeFile?.name || (locale === 'zh' ? '未打开文件' : 'No file open')}
+          {(activeFile?.isUntitled ? activeFile.name : activeFile?.path) || activeFile?.name || (locale === 'zh' ? '未打开文件' : 'No file open')}
         </span>
         <span>{locale === 'zh' ? '字数' : 'Words'}: {words}</span>
         <span>{locale === 'zh' ? '行数' : 'Lines'}: {lines}</span>

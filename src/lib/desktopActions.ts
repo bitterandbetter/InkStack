@@ -263,7 +263,13 @@ export async function saveActiveFile(source: SaveHistorySource = 'manual'): Prom
   } = useStore.getState();
 
   if (!activeFile || !isDirty) return true;
-    if (activeFile.readOnly || !activeFile.isMarkdown) {
+  if (activeFile.isUntitled) {
+    // Autosave must never open a native Save As dialog for a fresh draft.
+    // Manual save remains the explicit point where the user chooses a path.
+    if (source === 'auto') return true;
+    return saveActiveFileAs();
+  }
+  if (activeFile.readOnly || !activeFile.isMarkdown) {
     const message = activeFile.readOnly ? '当前文件以只读方式打开' : '当前只支持保存 Markdown 文件';
     markSaveError(message);
     void notifySaveFailure(activeFile.name, message, source);

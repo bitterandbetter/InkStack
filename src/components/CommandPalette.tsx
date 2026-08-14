@@ -49,6 +49,7 @@ import type { EditorAiPromptKey } from '../lib/aiPrompts';
 import { fileNameFromPath } from '../lib/path';
 import { APP_COMMAND_SHORTCUTS, runAppCommand } from '../lib/appCommands';
 import { MARKDOWN_COMMANDS } from '../lib/markdownCommands';
+import { useToast } from './Toast';
 
 type CommandItem = {
   id: string;
@@ -56,12 +57,14 @@ type CommandItem = {
   subtitle?: string;
   meta?: string;
   icon: React.ReactNode;
+  disabled?: boolean;
   run: () => void | boolean | Promise<void | boolean>;
 };
 
 const SEARCH_DEBOUNCE_MS = 120;
 
 export function CommandPalette() {
+  const toast = useToast();
   const {
     commandPaletteOpen,
     closeCommandPalette,
@@ -294,6 +297,7 @@ export function CommandPalette() {
         title: locale === 'zh' ? '返回上一个文档' : 'Back to previous document',
         subtitle: canGoBack ? undefined : (locale === 'zh' ? '没有可返回的标签历史' : 'No previous tab history'),
         icon: <ChevronLeft size={15} />,
+        disabled: !canGoBack,
         run: () => runAppCommand('history-back')
       },
       {
@@ -301,6 +305,7 @@ export function CommandPalette() {
         title: locale === 'zh' ? '前进到下一个文档' : 'Forward to next document',
         subtitle: canGoForward ? undefined : (locale === 'zh' ? '没有可前进的标签历史' : 'No forward tab history'),
         icon: <ChevronRight size={15} />,
+        disabled: !canGoForward,
         run: () => runAppCommand('history-forward')
       },
       {
@@ -492,9 +497,16 @@ export function CommandPalette() {
   if (!commandPaletteOpen) return null;
 
   const runItem = async (item: CommandItem | undefined) => {
-    if (!item) return;
+    if (!item || item.disabled) return;
     closeCommandPalette();
-    await item.run();
+    try {
+      await item.run();
+    } catch (error) {
+      console.error('Command palette action failed', error);
+      toast.error(locale === 'zh'
+        ? `操作失败：${error instanceof Error ? error.message : String(error)}`
+        : `Action failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -550,9 +562,12 @@ export function CommandPalette() {
                 key={item.id}
                 onClick={() => void runItem(item)}
                 onMouseEnter={() => setActiveIndex(index)}
+                disabled={item.disabled}
                 className={cn(
                   'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors',
-                  index === clampedActiveIndex ? 'bg-bg-hover text-text-primary' : 'text-text-secondary'
+                  item.disabled
+                    ? 'cursor-not-allowed text-text-tertiary opacity-50'
+                    : index === clampedActiveIndex ? 'bg-bg-hover text-text-primary' : 'text-text-secondary'
                 )}
               >
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border-subtle bg-bg-panel text-accent">

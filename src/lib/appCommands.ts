@@ -7,10 +7,12 @@ import {
   saveActiveFile,
   saveActiveFileAs
 } from './desktopActions';
-import { emitAiPanelTab, emitEditorCommand, type AiPanelTab } from './appEvents';
+import { emitEditorCommand, type AiPanelTab } from './appEvents';
 import { openDirectory, openMarkdownFileDialog } from './fs';
 import { useStore } from '../store';
 import { loadShortcuts, getShortcutForCommand } from './shortcuts';
+import { getErrorMessage } from './utils';
+import { notifyError } from './notifications';
 
 export type AppCommandId =
   | 'new-file'
@@ -95,6 +97,19 @@ export function isAppCommandId(command: string): command is AppCommandId {
 }
 
 export async function runAppCommand(command: AppCommandId): Promise<boolean | void> {
+  try {
+    return await executeAppCommand(command);
+  } catch (error) {
+    console.error(`App command failed: ${command}`, error);
+    const locale = useStore.getState().locale;
+    notifyError(locale === 'zh'
+      ? `操作失败：${getErrorMessage(error)}`
+      : `Action failed: ${getErrorMessage(error)}`);
+    return false;
+  }
+}
+
+async function executeAppCommand(command: AppCommandId): Promise<boolean | void> {
   switch (command) {
     case 'new-file':
       return createUntitledMarkdownFile();
@@ -156,10 +171,10 @@ export async function runAppCommand(command: AppCommandId): Promise<boolean | vo
       openAiTab('ai');
       return true;
     case 'ai-outline':
-      useStore.getState().setViewMode('read');
+      openAiTab('outline');
       return true;
     case 'ai-code':
-      useStore.getState().setViewMode('code');
+      openAiTab('code');
       return true;
     case 'ai-settings':
       openAiTab('settings');
@@ -168,8 +183,5 @@ export async function runAppCommand(command: AppCommandId): Promise<boolean | vo
 }
 
 function openAiTab(tab: AiPanelTab) {
-  if (!useStore.getState().aiPanelOpen) {
-    useStore.getState().toggleAiPanel();
-  }
-  emitAiPanelTab(tab);
+  useStore.getState().openAiPanelTab(tab);
 }

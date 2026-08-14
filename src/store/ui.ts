@@ -6,7 +6,10 @@ export interface UiState {
   sidebarOpen: boolean;
   toggleSidebar: () => void;
   aiPanelOpen: boolean;
+  aiPanelTab: 'ai' | 'outline' | 'code' | 'settings';
   toggleAiPanel: () => void;
+  setAiPanelTab: (tab: 'ai' | 'outline' | 'code' | 'settings') => void;
+  openAiPanelTab: (tab: 'ai' | 'outline' | 'code' | 'settings') => void;
   commandPaletteOpen: boolean;
   openCommandPalette: () => void;
   closeCommandPalette: () => void;
@@ -22,7 +25,10 @@ export function createUiSlice(set: any): UiState {
     sidebarOpen: true,
     toggleSidebar: () => set((state: UiState) => ({ sidebarOpen: !state.sidebarOpen })),
     aiPanelOpen: false,
+    aiPanelTab: 'ai',
     toggleAiPanel: () => set((state: UiState) => ({ aiPanelOpen: !state.aiPanelOpen })),
+    setAiPanelTab: (tab) => set({ aiPanelTab: tab }),
+    openAiPanelTab: (tab) => set({ aiPanelOpen: true, aiPanelTab: tab }),
     commandPaletteOpen: false,
     openCommandPalette: () => set({ commandPaletteOpen: true }),
     closeCommandPalette: () => set({ commandPaletteOpen: false }),

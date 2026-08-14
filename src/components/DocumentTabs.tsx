@@ -73,7 +73,7 @@ export function DocumentTabs() {
                 'group flex h-9 max-w-56 shrink-0 items-center gap-2 border-r border-border-subtle px-3 transition-colors',
                 active ? 'bg-bg-base text-text-primary' : 'bg-bg-panel/40 text-text-secondary hover:bg-bg-hover hover:text-text-primary'
               )}
-              title={tab.file.path || tab.file.name}
+              title={tab.file.isUntitled ? tab.file.name : (tab.file.path || tab.file.name)}
             >
               {tab.file.isMarkdown ? <FileText size={13} className="shrink-0" /> : <FileCode2 size={13} className="shrink-0" />}
               <span className="min-w-0 truncate">{tab.file.name}</span>

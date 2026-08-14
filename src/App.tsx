@@ -14,7 +14,7 @@ import { SaveConflictDialog } from "./components/SaveConflictDialog";
 import { AiContextDialog } from "./components/AiContextDialog";
 import { CloseConfirmDialog } from "./components/CloseConfirmDialog";
 import { ToastProvider, useToast } from "./components/Toast";
-import { setToastRef } from "./lib/export";
+import { setToastRef } from "./lib/notifications";
 import { useDesktopEvents } from "./hooks/useDesktopEvents";
 import { useShortcuts } from "./lib/hooks/useShortcuts";
 import { lazy, Suspense, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
@@ -245,8 +245,8 @@ function ToastRefSetup() {
   const toast = useToast();
   useEffect(() => {
     setToastRef(toast);
+    return () => setToastRef(null);
   }, [toast]);
   return null;
 }
-
 

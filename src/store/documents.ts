@@ -1,5 +1,12 @@
 import type { FileMetadata, FileNode } from '../lib/fs';
 
+let untitledDocumentSequence = 0;
+
+function createUntitledDocumentPath() {
+  untitledDocumentSequence += 1;
+  return `inkstack-draft://untitled/${Date.now()}-${untitledDocumentSequence}`;
+}
+
 function isSameOrChildPath(candidatePath: string, parentPath: string) {
   if (!candidatePath || !parentPath) return false;
   const normalizedCandidate = candidatePath.replace(/\/+$/, '');
@@ -458,7 +465,10 @@ export function createDocumentSlice(set: any, get: any): DocumentState {
       const tabs = snapshotActiveTab(state);
       const untitledCount = tabs.filter((tab) => tab.file.name.startsWith('untitled')).length;
       const name = `untitled${untitledCount > 0 ? untitledCount + 1 : ''}.md`;
-      const path = `${state.rootPath || ''}/${name}`;
+      // A new document is only an in-memory draft. Giving it a workspace-like
+      // path makes autosave treat it as an existing file even though it has no
+      // metadata baseline on disk.
+      const path = createUntitledDocumentPath();
       const file: FileNode = {
         name,
         kind: 'file',
@@ -467,6 +477,7 @@ export function createDocumentSlice(set: any, get: any): DocumentState {
         isText: true,
         fileKind: 'markdown',
         language: 'markdown',
+        isUntitled: true,
         isLoaded: true,
         isTruncated: false
       };

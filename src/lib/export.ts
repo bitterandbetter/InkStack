@@ -1,23 +1,6 @@
 import { preparePreviewMarkdown } from '../features/preview/markdownPipeline';
 import { invoke } from './tauriRuntime';
-
-let toastRef: { success: (msg: string) => void; error: (msg: string) => void; info: (msg: string) => void } | null = null;
-
-export function setToastRef(ref: { success: (msg: string) => void; error: (msg: string) => void; info: (msg: string) => void }) {
-  toastRef = ref;
-}
-
-function notifySuccess(message: string) {
-  toastRef?.success(message);
-}
-
-function notifyError(message: string) {
-  toastRef?.error(message);
-}
-
-function notifyInfo(message: string) {
-  toastRef?.info(message);
-}
+import { notifyError, notifyInfo, notifySuccess } from './notifications';
 
 export type ExportFormat = 'html' | 'markdown' | 'pdf' | 'docx' | 'png';
 

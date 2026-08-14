@@ -9,6 +9,8 @@ export interface FileNode {
   fileKind: 'directory' | 'markdown' | 'code' | 'text' | 'unsupported';
   language: string | null;
   readOnly?: boolean;
+  /** In-memory document that has not been assigned a disk path yet. */
+  isUntitled?: boolean;
   isLoaded: boolean;
   isTruncated: boolean;
   children?: FileNode[];

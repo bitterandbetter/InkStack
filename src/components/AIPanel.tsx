@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, type MouseEvent as ReactMouseEvent } from 'react';
-import { X, Sparkles } from 'lucide-react';
+import { Braces, ListTree, Sparkles, X } from 'lucide-react';
 import { useStore } from '../store';
 import {
   AiConfig,
@@ -43,6 +43,7 @@ import {
 import { CodeBlocksPanel } from './CodeBlocksPanel';
 import { AIPanelChatTab } from './AIPanelChatTab';
 import { AIPanelSettingsTab } from './AIPanelSettingsTab';
+import { AIPanelOutlineTab, renderOutlineIcon } from './AIPanelOutlineTab';
 import { TabButton } from './AIPanelChrome';
 import {
   AI_ACTIVE_CONTEXT_CHARS,
@@ -57,6 +58,8 @@ const AI_PANEL_MAX_WIDTH = 760;
 export function AIPanel() {
   const {
     aiPanelOpen,
+    aiPanelTab,
+    setAiPanelTab,
     toggleAiPanel,
     rootPath,
     activeFileContent,
@@ -68,6 +71,7 @@ export function AIPanel() {
     setActiveFileContent,
     replaceActiveFileRange,
     setPendingEditorLine,
+    setViewMode,
     editorSelection,
     editorAiPrompts,
     setEditorAiPrompts,
@@ -78,7 +82,6 @@ export function AIPanel() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftConfig, setDraftConfig] = useState<AiConfig>(aiConfig);
   const [draftPrompts, setDraftPrompts] = useState(editorAiPrompts);
   const [draftContextPreferences, setDraftContextPreferences] = useState(aiContextPreferences);
@@ -143,9 +146,7 @@ export function AIPanel() {
     setIncludeActiveFileContext(aiContextPreferences.includeActiveFileByDefault);
   }, [activeFile?.path, activeFileContent, aiContextPreferences.includeActiveFileByDefault]);
 
-  useEffect(() => listenAiPanelTab((tab) => {
-    if (tab === 'settings') setSettingsOpen(true);
-  }), []);
+  useEffect(() => listenAiPanelTab(setAiPanelTab), [setAiPanelTab]);
 
   useEffect(() => listenAiSelection((payload) => {
     const text = payload.text.trim();
@@ -200,6 +201,17 @@ export function AIPanel() {
     }
     return parseCodeBlocks(activeFileContent);
   }, [activeFile, activeFileContent]);
+
+  const outline = useMemo(() => {
+    if (activeFile && !activeFile.isMarkdown) {
+      return parseRawCodeOutline(activeFileContent, activeFile.language || 'text');
+    }
+    return parseOutline(activeFileContent);
+  }, [activeFile, activeFileContent]);
+
+  const codeLanguages = useMemo(() => Array.from(new Set(
+    codeBlocks.map((block) => block.language || 'text')
+  )).sort(), [codeBlocks]);
 
   const filteredCodeBlocks = useMemo(() => codeBlocks.filter((block) => {
     const languageMatches = codeLanguageFilter === 'all' || block.language === codeLanguageFilter;
@@ -617,9 +629,17 @@ export function AIPanel() {
   };
 
   const handleCopyCodeBlock = async (block: CodeBlockInfo) => {
-    await navigator.clipboard.writeText(block.code);
-    setCopiedCodeBlockId(block.id);
-    window.setTimeout(() => setCopiedCodeBlockId(null), 1800);
+    try {
+      await navigator.clipboard.writeText(block.code);
+      setCopiedCodeBlockId(block.id);
+      window.setTimeout(() => setCopiedCodeBlockId(null), 1800);
+    } catch (error) {
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: `${locale === 'zh' ? '复制失败' : 'Copy failed'}: ${sanitizeAiError(error, locale)}`
+      }]);
+      setAiPanelTab('ai');
+    }
   };
 
   const handleCopyAllCodeBlocks = async () => {
@@ -627,9 +647,17 @@ export function AIPanel() {
     const markdown = filteredCodeBlocks
       .map((block) => `\`\`\`${block.language || 'text'}\n${block.code.replace(/\n$/, '')}\n\`\`\``)
       .join('\n\n');
-    await navigator.clipboard.writeText(markdown);
-    setCopiedAllCodeBlocks(true);
-    window.setTimeout(() => setCopiedAllCodeBlocks(false), 1800);
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setCopiedAllCodeBlocks(true);
+      window.setTimeout(() => setCopiedAllCodeBlocks(false), 1800);
+    } catch (error) {
+      setMessages((prev) => [...prev, {
+        role: 'assistant',
+        content: `${locale === 'zh' ? '复制失败' : 'Copy failed'}: ${sanitizeAiError(error, locale)}`
+      }]);
+      setAiPanelTab('ai');
+    }
   };
 
   const insertCodeBlockIntoDocument = (block: ExtractedCodeBlock) => {
@@ -690,6 +718,8 @@ export function AIPanel() {
 
   const handleCodeAiAction = async (block: CodeBlockInfo, action: 'explain' | 'refactor' | 'comment') => {
     if (isTyping) return;
+
+    setAiPanelTab('ai');
 
     const prompt = codeAiPrompt(action, block.language || 'text', locale);
     const userMsg: Message = {
@@ -814,17 +844,29 @@ export function AIPanel() {
       </div>
       <div className="flex border-b border-border-subtle">
         <TabButton
-          active
+          active={aiPanelTab === 'ai' || aiPanelTab === 'settings'}
           icon={<Sparkles size={13} />}
           label={locale === 'zh' ? 'AI 助手' : 'AI'}
-          onClick={() => undefined}
+          onClick={() => setAiPanelTab('ai')}
+        />
+        <TabButton
+          active={aiPanelTab === 'outline'}
+          icon={<ListTree size={13} />}
+          label={locale === 'zh' ? '大纲' : 'Outline'}
+          onClick={() => setAiPanelTab('outline')}
+        />
+        <TabButton
+          active={aiPanelTab === 'code'}
+          icon={<Braces size={13} />}
+          label={locale === 'zh' ? '代码' : 'Code'}
+          onClick={() => setAiPanelTab('code')}
         />
         <button onClick={toggleAiPanel} className="w-10 flex items-center justify-center text-text-tertiary hover:bg-bg-hover hover:text-text-primary transition-colors">
           <X size={14} />
         </button>
       </div>
 
-      <AIPanelChatTab
+      {(aiPanelTab === 'ai' || aiPanelTab === 'settings') && <AIPanelChatTab
         locale={locale}
         rootPath={rootPath}
         activeFileName={activeFile?.name ?? null}
@@ -849,8 +891,8 @@ export function AIPanel() {
         codeApplyDraft={codeApplyDraft}
         messageScrollRef={messageScrollRef}
         endRef={endRef}
-        settingsOpen={settingsOpen}
-        onToggleSettings={() => setSettingsOpen((current) => !current)}
+        settingsOpen={aiPanelTab === 'settings'}
+        onToggleSettings={() => setAiPanelTab(aiPanelTab === 'settings' ? 'ai' : 'settings')}
         onInputChange={setInput}
         onSend={() => void handleSend()}
         onToggleContextDrawer={() => setContextDrawerOpen((current) => !current)}
@@ -874,9 +916,51 @@ export function AIPanel() {
         onRewriteRegenerateChunk={(chunkId) => void handleRewriteRegenerateChunk(chunkId)}
         onApplyCodeDraft={applyCodeBlockDraft}
         onDiscardCodeDraft={() => setCodeApplyDraft(null)}
-      />
+      />}
 
-      {settingsOpen && (
+      {aiPanelTab === 'outline' && (
+        <AIPanelOutlineTab
+          locale={locale}
+          activeFileIsCode={Boolean(activeFile && !activeFile.isMarkdown)}
+          outline={outline}
+          activeOutlineLine={currentEditorLine}
+          onJump={(line) => {
+            setPendingEditorLine(line);
+            setViewMode('split');
+          }}
+        />
+      )}
+
+      {aiPanelTab === 'code' && (
+        <CodeBlocksPanel
+          blocks={filteredCodeBlocks}
+          languages={codeLanguages}
+          activeLanguage={codeLanguageFilter}
+          query={codeQuery}
+          collapsedBlockIds={collapsedCodeBlockIds}
+          copiedCodeBlockId={copiedCodeBlockId}
+          copiedAll={copiedAllCodeBlocks}
+          locale={locale}
+          onLanguageChange={setCodeLanguageFilter}
+          onQueryChange={setCodeQuery}
+          onToggleCollapse={(blockId) => setCollapsedCodeBlockIds((ids) => (
+            ids.includes(blockId) ? ids.filter((id) => id !== blockId) : [...ids, blockId]
+          ))}
+          onJump={(line) => {
+            setPendingEditorLine(line);
+            setViewMode('split');
+          }}
+          onCopy={(block) => void handleCopyCodeBlock(block)}
+          onCopyAll={() => void handleCopyAllCodeBlocks()}
+          onExplain={(block) => void handleCodeAiAction(block, 'explain')}
+          onRefactor={(block) => void handleCodeAiAction(block, 'refactor')}
+          onComment={(block) => void handleCodeAiAction(block, 'comment')}
+          onCompare={handleCodeDiff}
+          renderOutlineIcon={renderOutlineIcon}
+        />
+      )}
+
+      {aiPanelTab === 'settings' && (
         <div className="absolute right-3 top-14 z-40 h-[calc(100%-4rem)] w-[min(36rem,calc(100%-1.5rem))] overflow-hidden rounded-md border border-border-subtle bg-bg-base shadow-2xl">
           <AIPanelSettingsTab
             locale={locale}

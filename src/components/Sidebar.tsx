@@ -55,6 +55,9 @@ const FileTreeNode = ({
           setDirectoryChildren(node.path, children);
         } catch (err) {
           console.error("Failed to load directory", err);
+          toast.error(
+            `${node.name}: ${err instanceof Error ? err.message : String(err)}`
+          );
         } finally {
           setIsLoading(false);
         }
@@ -274,6 +277,7 @@ function WorkspaceContextMenu({
   prompt: (title: string, initialValue?: string, message?: string) => Promise<string | null>;
   confirmDialog: (title: string, message?: string, danger?: boolean, confirmLabel?: string) => Promise<boolean>;
 }) {
+  const toast = useToast();
   const node = state.node;
   const parentPath = state.parentPath;
 
@@ -283,6 +287,11 @@ function WorkspaceContextMenu({
       await action();
     } catch (err) {
       console.error('Workspace action failed', err);
+      toast.error(
+        locale === 'zh'
+          ? `操作失败：${err instanceof Error ? err.message : String(err)}`
+          : `Action failed: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   };
 
