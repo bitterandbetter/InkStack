@@ -862,6 +862,23 @@
     opacity: 0.35;
   }
 
+  .inkstack-wysiwyg-mermaid-editor .chart-container .inkstack-mermaid-editable-node {
+    cursor: text;
+    outline: 2px solid transparent;
+    outline-offset: 4px;
+    transition: filter 120ms ease, outline-color 120ms ease;
+  }
+
+  .inkstack-wysiwyg-mermaid-editor .chart-container .inkstack-mermaid-editable-node:hover,
+  .inkstack-wysiwyg-mermaid-editor .chart-container .inkstack-mermaid-editable-node:focus-visible {
+    filter: brightness(1.04);
+    outline-color: color-mix(in srgb, var(--color-accent) 58%, transparent);
+  }
+
+  .inkstack-wysiwyg-mermaid-editor .chart-container .inkstack-mermaid-selected-node {
+    outline-color: var(--color-accent);
+  }
+
   .inkstack-wysiwyg-surface .cm-line.inkstack-wysiwyg-math-block {
     background: color-mix(in srgb, var(--color-bg-panel) 54%, transparent);
     color: var(--color-text-primary);

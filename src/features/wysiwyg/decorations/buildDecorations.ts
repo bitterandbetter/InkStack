@@ -7,6 +7,7 @@ import type { MarkdownVisualNode } from '../types';
 import { ListMarkerWidget, TaskCheckboxWidget } from '../widgets/ListMarkerWidget';
 import { ReactWidget } from '../widgets/ReactWidget';
 import { LinkWidget } from '../widgets/LinkWidget';
+import { MermaidEditorWidget } from '../widgets/MermaidEditorWidget';
 import {
   CodeBlockPreview,
   DefinitionListBlockPreview,
@@ -21,6 +22,7 @@ import {
   WysiwygBlockFrame
 } from '../widgets/WysiwygBlockWidget';
 import type { WysiwygExtensionOptions } from '../types';
+import { nodeUsesExplicitSource, setWysiwygSourceBlock } from '../sourceBlockState';
 
 type OffsetRange = { from: number; to: number };
 
@@ -66,7 +68,7 @@ function addNodeDecorations(
   addLineClass: (line: number, className: string) => void
 ) {
   const content = node.contentRange;
-  if (!active && shouldRenderWidget(state, node)) {
+  if (shouldRenderWidget(state, node)) {
     const widget = createBlockWidget(state, options, node);
     if (widget) {
       ranges.push(Decoration.replace({ widget, block: isBlockWidget(state, node) }).range(node.range.from, node.range.to));
@@ -202,7 +204,10 @@ function createBlockWidget(state: EditorState, options: WysiwygExtensionOptions,
     const anchor = node.contentRange?.from ?? node.range.from;
     view.dispatch({
       selection: { anchor },
-      effects: EditorView.scrollIntoView(anchor, { y: 'center' })
+      effects: [
+        setWysiwygSourceBlock.of({ from: node.range.from, to: node.range.to }),
+        EditorView.scrollIntoView(anchor, { y: 'center' })
+      ]
     });
     view.focus();
   };
@@ -235,6 +240,34 @@ function createBlockWidget(state: EditorState, options: WysiwygExtensionOptions,
   if (node.type === 'codeBlock') {
     const language = String(node.metadata?.language ?? 'text');
     const code = node.contentRange ? state.sliceDoc(node.contentRange.from, node.contentRange.to) : source;
+    if (language.toLowerCase() === 'mermaid' && node.contentRange) {
+      return new ReactWidget(
+        `mermaid-editor-v1:${node.range.from}:${source}:${options.locale}`,
+        (view) => createElement(WysiwygBlockFrame, {
+          label: options.locale === 'zh' ? 'Mermaid 图表' : 'Mermaid diagram',
+          source,
+          locale: options.locale,
+          onEditSource: () => editSource(view)
+        }, createElement(LazyWidgetContent, {
+          label: options.locale === 'zh' ? '图表稍后加载' : 'Diagram loads when nearby'
+        }, createElement(MermaidEditorWidget, {
+          source: code,
+          locale: options.locale,
+          onSourceChange: (nextSource: string) => {
+            view.dispatch({
+              changes: {
+                from: node.contentRange!.from,
+                to: node.contentRange!.to,
+                insert: nextSource
+              }
+            });
+          }
+        }))),
+        'inkstack-wysiwyg-react-widget',
+        'div',
+        `mermaid-editor:${node.range.from}`
+      );
+    }
     return new ReactWidget(
       `code:${node.range.from}:${source}:${options.locale}`,
       (view) => createElement(WysiwygBlockFrame, {
@@ -287,13 +320,13 @@ function createBlockWidget(state: EditorState, options: WysiwygExtensionOptions,
         locale: options.locale,
         onSourceChange: (nextSource: string) => {
           view.dispatch({
-            changes: { from: node.range.from, to: node.range.to, insert: nextSource },
-            selection: { anchor: Math.min(node.range.from, view.state.doc.length) }
+            changes: { from: node.range.from, to: node.range.to, insert: nextSource }
           });
-          view.focus();
         }
       }))),
-      'inkstack-wysiwyg-react-widget'
+      'inkstack-wysiwyg-react-widget',
+      'div',
+      `table-editor:${node.range.from}`
     );
   }
 
@@ -371,11 +404,17 @@ function createBlockWidget(state: EditorState, options: WysiwygExtensionOptions,
 }
 
 function shouldRenderWidget(state: EditorState, node: MarkdownVisualNode) {
-  if (nodeIsActive(node, state.selection)) return false;
+  if (nodeUsesExplicitSource(state, node)) return false;
+  if (nodeIsActive(node, state.selection) && !isAlwaysStructuralWidget(node)) return false;
   if (!['image', 'codeBlock', 'mathInline', 'mathBlock', 'table', 'frontmatter', 'toc', 'definitionList', 'html', 'footnote', 'fallback'].includes(node.type)) return false;
   if (['frontmatter', 'toc', 'definitionList', 'html', 'footnote', 'fallback'].includes(node.type) && !isBlockWidget(state, node)) return false;
   if (node.type === 'image') return isBlockWidget(state, node);
   return true;
+}
+
+function isAlwaysStructuralWidget(node: MarkdownVisualNode) {
+  return node.type === 'table'
+    || (node.type === 'codeBlock' && String(node.metadata?.language ?? '').toLowerCase() === 'mermaid');
 }
 
 function isBlockWidget(state: EditorState, node: MarkdownVisualNode) {

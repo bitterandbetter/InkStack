@@ -10,13 +10,24 @@ export class ReactWidget extends WidgetType {
     private readonly widgetKey: string,
     private readonly renderNode: (view: EditorView) => ReactNode,
     private readonly className = '',
-    private readonly tagName: 'div' | 'span' = 'div'
+    private readonly tagName: 'div' | 'span' = 'div',
+    private readonly updateKey = widgetKey
   ) {
     super();
   }
 
   eq(other: ReactWidget) {
     return other.widgetKey === this.widgetKey;
+  }
+
+  updateDOM(dom: HTMLElement, view: EditorView, from: this) {
+    if (from.updateKey !== this.updateKey || dom.tagName.toLowerCase() !== this.tagName) return false;
+    const root = mountedRoots.get(dom);
+    if (!root) return false;
+    dom.className = this.className;
+    root.render(this.renderNode(view));
+    window.requestAnimationFrame(() => view.requestMeasure());
+    return true;
   }
 
   toDOM(view: EditorView) {
@@ -48,6 +59,9 @@ export class ReactWidget extends WidgetType {
   }
 
   ignoreEvent() {
-    return false;
+    // React controls inside a replacement widget own their pointer, keyboard,
+    // focus, and clipboard events. Source editing is entered explicitly through
+    // the frame action, so CodeMirror must not move its selection into the block.
+    return true;
   }
 }

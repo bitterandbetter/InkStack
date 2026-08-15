@@ -5,6 +5,9 @@ import { getErrorMessage } from '../lib/utils';
 
 interface MermaidProps {
   chart: string;
+  editableNodes?: ReadonlyArray<{ id: string; label: string }>;
+  selectedNodeId?: string;
+  onNodeSelect?: (id: string) => void;
 }
 
 let mermaidModulePromise: Promise<typeof import('mermaid').default> | null = null;
@@ -25,7 +28,12 @@ async function loadMermaid() {
   return mermaidModulePromise;
 }
 
-export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
+export const Mermaid: React.FC<MermaidProps> = ({
+  chart,
+  editableNodes = [],
+  selectedNodeId,
+  onNodeSelect
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
   const [svg, setSvg] = useState<string>('');
@@ -60,6 +68,52 @@ export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
       cancelled = true;
     };
   }, [chart]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !svg || !onNodeSelect || editableNodes.length === 0) return;
+
+    const candidates = Array.from(container.querySelectorAll<SVGGraphicsElement>('g.node, g[id*="flowchart-"]'));
+    const claimed = new Set<SVGGraphicsElement>();
+    const cleanups: Array<() => void> = [];
+
+    for (const node of editableNodes) {
+      const element = findEditableMermaidNode(candidates, claimed, node);
+      if (!element) continue;
+      claimed.add(element);
+      const previousTabIndex = element.getAttribute('tabindex');
+      const previousRole = element.getAttribute('role');
+      const previousLabel = element.getAttribute('aria-label');
+      const activate = (event: Event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onNodeSelect(node.id);
+      };
+      const keydown = (event: KeyboardEvent) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        activate(event);
+      };
+
+      element.classList.add('inkstack-mermaid-editable-node');
+      element.classList.toggle('inkstack-mermaid-selected-node', node.id === selectedNodeId);
+      element.setAttribute('tabindex', '0');
+      element.setAttribute('role', 'button');
+      element.setAttribute('aria-label', `Edit Mermaid node ${node.id}: ${node.label}`);
+      element.addEventListener('click', activate);
+      element.addEventListener('keydown', keydown);
+
+      cleanups.push(() => {
+        element.classList.remove('inkstack-mermaid-editable-node', 'inkstack-mermaid-selected-node');
+        restoreAttribute(element, 'tabindex', previousTabIndex);
+        restoreAttribute(element, 'role', previousRole);
+        restoreAttribute(element, 'aria-label', previousLabel);
+        element.removeEventListener('click', activate);
+        element.removeEventListener('keydown', keydown);
+      });
+    }
+
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, [editableNodes, onNodeSelect, selectedNodeId, svg]);
 
   useEffect(() => {
     if (!isFullscreen) return;
@@ -112,6 +166,7 @@ export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
         <div 
           ref={containerRef} 
           className="flex justify-center items-center bg-bg-panel border border-border-subtle rounded-lg p-6 min-h-[100px] overflow-auto chart-container"
+          data-inkstack-mermaid-editable={editableNodes.length > 0 ? 'true' : undefined}
         >
           {renderError ? (
             <MermaidError message={renderError} chart={chart} />
@@ -238,6 +293,38 @@ export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
     </>
   );
 };
+
+function findEditableMermaidNode(
+  candidates: SVGGraphicsElement[],
+  claimed: Set<SVGGraphicsElement>,
+  node: { id: string; label: string }
+) {
+  const byId = candidates.find((candidate) => {
+    if (claimed.has(candidate)) return false;
+    const dataId = candidate.getAttribute('data-id') ?? candidate.getAttribute('data-node-id');
+    const domId = candidate.id;
+    return dataId === node.id
+      || domId === node.id
+      || domId.startsWith(`flowchart-${node.id}-`)
+      || domId.includes(`-${node.id}-`);
+  });
+  if (byId) return byId;
+
+  const normalizedLabel = normalizeNodeText(node.label);
+  return candidates.find((candidate) => (
+    !claimed.has(candidate)
+    && normalizeNodeText(candidate.textContent ?? '') === normalizedLabel
+  ));
+}
+
+function normalizeNodeText(value: string) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function restoreAttribute(element: Element, name: string, value: string | null) {
+  if (value === null) element.removeAttribute(name);
+  else element.setAttribute(name, value);
+}
 
 function MermaidError({ message, chart }: { message: string; chart: string }) {
   const firstLine = chart.split(/\r?\n/).find((line) => line.trim()) || '';
