@@ -11,6 +11,10 @@ All notable changes to InkStack will be documented in this file. The project fol
 - Automated npm, Cargo, and GitHub Actions dependency updates.
 - A manual Windows installer workflow that uploads artifacts to an existing release.
 
+### Changed
+
+- WYSIWYG tables now remain structural while cells are edited, and Mermaid diagrams support direct named-node label editing while preserving source-mode access.
+
 ## [1.1.0] - 2026-08-15
 
 ### Added

@@ -7,6 +7,9 @@ export {
   serializeMarkdownTable,
   tableToTsv
 } from './tableModel';
+export { parseMermaidNodes, updateMermaidNodeLabel } from './mermaidModel';
+export type { MermaidEditableNode } from './mermaidModel';
+export { setWysiwygSourceBlock, wysiwygSourceBlockField } from './sourceBlockState';
 export type {
   MarkdownDocumentIndex,
   MarkdownSourceRange,

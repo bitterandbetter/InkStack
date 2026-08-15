@@ -53,6 +53,7 @@ export function WysiwygBlockFrame({
       className="inkstack-wysiwyg-widget group relative my-3 rounded-lg border border-border-subtle bg-bg-base"
       data-inkstack-wysiwyg-widget="true"
       onDoubleClick={(event) => {
+        if (event.target instanceof Element && event.target.closest('[data-inkstack-wysiwyg-interactive="true"], input, textarea, select, button, [contenteditable="true"]')) return;
         event.preventDefault();
         event.stopPropagation();
         onEditSource();

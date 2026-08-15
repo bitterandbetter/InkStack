@@ -3,6 +3,7 @@ import { EditorView, keymap, type DecorationSet } from '@codemirror/view';
 import { buildWysiwygDecorations } from './decorations/buildDecorations';
 import { wysiwygListKeymap } from './commands/listCommands';
 import { exitActiveWysiwygBlock } from './commands/widgetCommands';
+import { wysiwygSourceBlockField } from './sourceBlockState';
 import type { WysiwygExtensionOptions } from './types';
 
 export function createWysiwygExtension(options: WysiwygExtensionOptions = { documentPath: '', locale: 'zh' }): Extension {
@@ -20,6 +21,7 @@ export function createWysiwygExtension(options: WysiwygExtensionOptions = { docu
     provide: (field) => EditorView.decorations.from(field)
   });
   return [
+    wysiwygSourceBlockField,
     wysiwygDecorationField,
     Prec.high(keymap.of([
       { key: 'Escape', run: exitActiveWysiwygBlock },

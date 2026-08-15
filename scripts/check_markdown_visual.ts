@@ -103,6 +103,16 @@ const hasTauriVisualCaptureScript = sourceIncludes('scripts/capture_tauri_visual
   && sourceIncludes('package.json', '"test:tauri:visual"');
 const hasMacReleaseDistributionChecks = sourceIncludes('scripts/check_macos_release.sh', 'stapler validate')
   && sourceIncludes('scripts/check_macos_release.sh', 'com.apple.quarantine');
+const hasStructuredWysiwygEditors = sourceIncludes(
+  'src/features/wysiwyg/widgets/TableEditorWidget.tsx',
+  'data-inkstack-wysiwyg-table-editor="true"'
+) && sourceIncludes(
+  'src/features/wysiwyg/widgets/MermaidEditorWidget.tsx',
+  'data-inkstack-wysiwyg-mermaid-editor="true"'
+) && sourceIncludes(
+  'src/features/wysiwyg/decorations/buildDecorations.ts',
+  'changes: { from: node.range.from, to: node.range.to, insert: nextSource }'
+);
 
 const checks: Array<[string, boolean]> = [
   ['fixture contains Mermaid chart', hasMermaid],
@@ -128,6 +138,7 @@ const checks: Array<[string, boolean]> = [
   ['workspace commands are split from file commands', hasWorkspaceCommandsSplit],
   ['AI provider implementations are split from command dispatch', hasAiProvidersSplit],
   ['desktop notifications are wired for save failures', hasDesktopNotifications],
+  ['WYSIWYG tables and Mermaid diagrams expose structural editors', hasStructuredWysiwygEditors],
 ];
 
 fs.mkdirSync(outputDir, { recursive: true });

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ClipboardEvent, type FocusEvent } from 'react';
+import { useMemo, useRef, useState, type ClipboardEvent } from 'react';
 import { AlignCenter, AlignLeft, AlignRight, Columns3, Copy, Plus, Rows3, Trash2 } from 'lucide-react';
 import {
   parseDelimitedTable,
@@ -39,12 +39,6 @@ export function TableEditorWidget({
   const column = Math.min(selected.column, model.alignments.length - 1);
   const t = (zh: string, en: string) => locale === 'zh' ? zh : en;
 
-  const commitCell = (event: FocusEvent<HTMLInputElement>, rowIndex: number, columnIndex: number) => {
-    const next = event.currentTarget.value;
-    if (next === (model.rows[rowIndex]?.[columnIndex] ?? '')) return;
-    update((draft) => { draft.rows[rowIndex][columnIndex] = next; });
-  };
-
   const pasteGrid = (event: ClipboardEvent<HTMLInputElement>, rowIndex: number, columnIndex: number) => {
     const text = event.clipboardData.getData('text/plain');
     if (!text.includes('\t') && !text.includes('\n') && !text.includes(',')) return;
@@ -65,7 +59,12 @@ export function TableEditorWidget({
   const setAlignment = (alignment: TableAlignment) => update((draft) => { draft.alignments[column] = alignment; });
 
   return (
-    <div ref={editorRef} className="inkstack-wysiwyg-table-editor" data-inkstack-wysiwyg-table-editor="true">
+    <div
+      ref={editorRef}
+      className="inkstack-wysiwyg-table-editor"
+      data-inkstack-wysiwyg-table-editor="true"
+      data-inkstack-wysiwyg-interactive="true"
+    >
       <div className="mb-2 flex flex-wrap items-center gap-1 text-[11px] text-text-secondary">
         <button type="button" onClick={() => update((draft) => draft.rows.splice(row + 1, 0, Array.from({ length: draft.alignments.length }, () => '')))} title={t('添加行', 'Add row')}><Plus size={12} /><Rows3 size={13} /></button>
         <button type="button" disabled={model.rows.length <= 1} onClick={() => update((draft) => draft.rows.splice(row, 1))} title={t('删除行', 'Delete row')}><Trash2 size={12} /><Rows3 size={13} /></button>
@@ -87,10 +86,13 @@ export function TableEditorWidget({
                   return (
                     <Cell key={columnIndex} className="border-b border-r border-border-subtle p-0 last:border-r-0">
                       <input
-                        defaultValue={cell}
+                        value={cell}
                         aria-label={t(`第 ${rowIndex + 1} 行第 ${columnIndex + 1} 列`, `Row ${rowIndex + 1}, column ${columnIndex + 1}`)}
                         onFocus={() => setSelected({ row: rowIndex, column: columnIndex })}
-                        onBlur={(event) => commitCell(event, rowIndex, columnIndex)}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          update((draft) => { draft.rows[rowIndex][columnIndex] = next; });
+                        }}
                         onPaste={(event) => pasteGrid(event, rowIndex, columnIndex)}
                         className="w-full min-w-24 bg-transparent px-2.5 py-2 text-text-primary outline-none focus:bg-bg-hover focus:ring-2 focus:ring-inset focus:ring-accent/40"
                       />
