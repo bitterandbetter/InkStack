@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320" viewBox="0 0 640 320" role="img" aria-label="InkStack WYSIWYG local image fixture">
+  <rect width="640" height="320" rx="24" fill="#f6f1e8"/>
+  <rect x="28" y="28" width="584" height="264" rx="16" fill="#fff" stroke="#2f8f72" stroke-width="4"/>
+  <path d="M92 224l112-108 90 90 72-58 170 106" fill="none" stroke="#2f8f72" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="474" cy="92" r="30" fill="#e4b85a"/>
+  <text x="320" y="278" text-anchor="middle" font-family="system-ui, sans-serif" font-size="24" font-weight="700" fill="#243b35">InkStack WYSIWYG</text>
+</svg>

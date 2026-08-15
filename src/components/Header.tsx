@@ -13,7 +13,8 @@ export function Header() {
     activeFile, isDirty,
     viewMode,
     readingSettings, setReadingSettings, resetReadingSettings, editorSettings, setEditorSettings, resetEditorSettings, themeState, setThemeMode, setActiveThemeId,
-    autoSaveEnabled, setAutoSaveEnabled, splitScrollSync, setSplitScrollSync, imageInsertMode, setImageInsertMode
+    autoSaveEnabled, setAutoSaveEnabled, splitScrollSync, setSplitScrollSync, imageInsertMode, setImageInsertMode,
+    wysiwygEnabled, setWysiwygEnabled
   } = useStore();
   const [readingSettingsOpen, setReadingSettingsOpen] = useState(false);
   const [settingsTarget, setSettingsTarget] = useState<'reading' | 'editor'>('reading');
@@ -185,6 +186,18 @@ export function Header() {
             className={cn("w-6 h-6 flex items-center justify-center rounded-[4px] transition-all", viewMode === 'edit' ? "bg-bg-base text-text-primary shadow-sm border border-border-subtle" : "hover:text-text-primary hover:bg-bg-hover border border-transparent")}
             title="Edit Mode"
           ><PenLine size={13}/></button>
+          {wysiwygEnabled && <button
+            onClick={() => void runAppCommand('view-wysiwyg')}
+            aria-disabled={!activeFile?.isMarkdown || Boolean(activeFile?.readOnly)}
+            className={cn(
+              "w-6 h-6 flex items-center justify-center rounded-[4px] border transition-all",
+              viewMode === 'wysiwyg'
+                ? "bg-bg-base text-text-primary shadow-sm border-border-subtle"
+                : "hover:text-text-primary hover:bg-bg-hover border-transparent",
+              (!activeFile?.isMarkdown || activeFile?.readOnly) && "opacity-45"
+            )}
+            title={locale === 'zh' ? '所见即所得模式' : 'WYSIWYG Mode'}
+          ><Type size={13}/></button>}
           <button 
             onClick={() => void runAppCommand('view-split')}
             className={cn("w-6 h-6 flex items-center justify-center rounded-[4px] transition-all", viewMode === 'split' ? "bg-bg-base text-text-primary shadow-sm border border-border-subtle" : "hover:text-text-primary hover:bg-bg-hover border border-transparent")}
@@ -409,6 +422,26 @@ export function Header() {
                     step={0.05}
                     onChange={(lineHeight) => setEditorSettings({ lineHeight })}
                   />
+                  <label className="mt-3 flex items-start gap-2 rounded-md border border-border-subtle bg-bg-panel px-2.5 py-2 text-[11px] text-text-secondary">
+                    <input
+                      type="checkbox"
+                      checked={wysiwygEnabled}
+                      onChange={(event) => {
+                        const enabled = event.target.checked;
+                        setWysiwygEnabled(enabled);
+                        if (!enabled && viewMode === 'wysiwyg') void runAppCommand('view-edit');
+                      }}
+                      className="mt-0.5 accent-accent"
+                    />
+                    <span>
+                      <span className="block font-medium text-text-primary">
+                        {locale === 'zh' ? '显示所见即所得模式（实验）' : 'Show WYSIWYG mode (experimental)'}
+                      </span>
+                      <span className="mt-0.5 block text-text-tertiary">
+                        {locale === 'zh' ? '关闭后自动返回编辑模式，文档内容不会改变。' : 'Turning it off returns to edit view without changing the document.'}
+                      </span>
+                    </span>
+                  </label>
                 </>
               )}
             </div>

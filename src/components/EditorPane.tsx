@@ -28,6 +28,7 @@ import { getEditorLanguageExtension } from './editorLanguage';
 import { applyMarkdownEdit, fileNameWithoutExtension, pickAndInsertAsset } from './markdownEditorActions';
 import { InlineDraftCard, formatInlineAnswerForMarkdown, getActionRunningText } from './EditorInlineAi';
 import type { MarkdownAction, TransformAction, InsightAction } from './editorPaneTypes';
+import { createWysiwygExtension } from '../features/wysiwyg';
 
 type DragDropPayload = {
   paths?: string[];
@@ -95,6 +96,12 @@ export function EditorPane() {
   const isMarkdownDocument = Boolean(activeFile?.isMarkdown);
   const editorLanguage = activeFile?.language || (isMarkdownDocument ? 'markdown' : 'text');
   const [languageExtension, setLanguageExtension] = useState<Extension>([]);
+  const wysiwygExtension = useMemo<Extension>(
+    () => viewMode === 'wysiwyg' && isMarkdownDocument
+      ? createWysiwygExtension({ documentPath: activeFile?.path ?? '', locale, imageInsertMode })
+      : [],
+    [activeFile?.path, imageInsertMode, isMarkdownDocument, locale, viewMode]
+  );
   const findMatches = useMemo(
     () => findDocumentMatches(activeFileContent, findQuery, matchCase),
     [activeFileContent, findQuery, matchCase]
@@ -667,7 +674,14 @@ export function EditorPane() {
   } as CSSProperties;
 
   return (
-    <div style={editorStyle} className={cn("flex-1 h-full overflow-hidden flex flex-col bg-bg-base relative", (viewMode === 'read' || viewMode === 'code') && 'hidden')}>
+    <div
+      style={editorStyle}
+      className={cn(
+        "inkstack-editor-surface flex-1 h-full overflow-hidden flex flex-col bg-bg-base relative",
+        viewMode === 'wysiwyg' && 'inkstack-wysiwyg-surface',
+        (viewMode === 'read' || viewMode === 'code') && 'hidden'
+      )}
+    >
       <CodeMirror
         ref={editorRef}
         value={activeFileContent}
@@ -675,6 +689,7 @@ export function EditorPane() {
         theme={isDarkMode ? 'dark' : 'light'}
         extensions={[
           languageExtension,
+          wysiwygExtension,
           EditorView.lineWrapping,
           highlightSelectionMatches(),
           lightTheme,
@@ -686,8 +701,8 @@ export function EditorPane() {
         className="h-full editor-scroll"
         height="100%"
         basicSetup={{
-          lineNumbers: true,
-          foldGutter: true,
+          lineNumbers: viewMode !== 'wysiwyg',
+          foldGutter: viewMode !== 'wysiwyg',
           highlightActiveLine: true,
           dropCursor: true,
           crosshairCursor: true,

@@ -61,9 +61,13 @@ const hasViewShortcutOrder = sourceIncludes('src-tauri/src/lib.rs', 'with_id("vi
   && sourceIncludes('src-tauri/src/lib.rs', 'accelerator("CmdOrCtrl+1")')
   && sourceIncludes('src/lib/appCommands.ts', "'view-edit': 'Cmd/Ctrl+1'")
   && sourceIncludes('src/lib/appCommands.ts', "'view-code': 'Cmd/Ctrl+4'")
+  && sourceIncludes('src/lib/appCommands.ts', "'view-wysiwyg': 'Cmd/Ctrl+5'")
+  && sourceIncludes('src-tauri/src/lib.rs', 'with_id("view-wysiwyg", "所见即所得视图")')
+  && sourceIncludes('src-tauri/src/lib.rs', 'accelerator("CmdOrCtrl+5")')
   && orderedSourceIncludes('src/components/CommandPalette.tsx', [
     "id: 'view-edit'",
     "id: 'view-split'",
+    "id: 'view-wysiwyg'",
     "id: 'view-read'",
     "id: 'view-code'"
   ]);
@@ -111,7 +115,7 @@ const checks: Array<[string, boolean]> = [
   ['Tauri runtime guard is present', hasTauriRuntimeGuard],
   ['desktop root viewport is locked to prevent bottom blank space', hasRootViewportLock],
   ['Tauri desktop listeners are runtime guarded', hasDesktopRuntimeListenersGuarded],
-  ['view shortcuts match UI order 1 edit, 2 split, 3 read, 4 code', hasViewShortcutOrder],
+  ['view shortcuts preserve 1 edit, 2 split, 3 read, 4 code and add 5 WYSIWYG', hasViewShortcutOrder],
   ['desktop bundle config produces DMG and keeps Markdown associations', hasDesktopBundleConfig],
   ['Tauri visual baseline capture script exists', hasTauriVisualCaptureScript],
   ['macOS release script checks notarization and quarantine state', hasMacReleaseDistributionChecks],

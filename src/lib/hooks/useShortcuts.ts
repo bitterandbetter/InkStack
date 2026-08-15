@@ -19,6 +19,7 @@ const NATIVE_MENU_COMMANDS = new Set<AppCommandId>([
   'view-split',
   'view-read',
   'view-code',
+  'view-wysiwyg',
   'toggle-sidebar',
   'toggle-ai'
 ]);

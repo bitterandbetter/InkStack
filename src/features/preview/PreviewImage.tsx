@@ -1,5 +1,5 @@
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { ImageOff, Maximize2, X } from 'lucide-react';
+import { ImageOff, Maximize2, RotateCcw, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { resolveMarkdownAsset } from '../../lib/fs';
 import { isTauriRuntime } from '../../lib/tauriRuntime';
@@ -18,6 +18,7 @@ export function PreviewImage({
   const [resolvedSrc, setResolvedSrc] = useState(src);
   const [failed, setFailed] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [revision, setRevision] = useState(0);
   const displaySrc = failed ? src : resolvedSrc;
 
   useEffect(() => {
@@ -44,7 +45,7 @@ export function PreviewImage({
     return () => {
       cancelled = true;
     };
-  }, [documentPath, src]);
+  }, [documentPath, revision, src]);
 
   if (failed) {
     return (
@@ -59,6 +60,14 @@ export function PreviewImage({
             ? '请检查相对路径是否存在，或将图片拖入编辑器自动复制到 assets 后重新插入。'
             : 'Check that the relative path exists, or drag the image into the editor to copy it into assets and insert it again.'}
         </span>
+        <button
+          type="button"
+          onClick={() => setRevision((value) => value + 1)}
+          className="mt-2 inline-flex items-center gap-1 rounded border border-border-subtle px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+        >
+          <RotateCcw size={12} />
+          {locale === 'zh' ? '重试' : 'Retry'}
+        </button>
       </span>
     );
   }

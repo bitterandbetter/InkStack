@@ -24,7 +24,7 @@ function replacePathPrefix(path: string, oldPrefix: string, newPrefix: string) {
   return `${normalizedNew}${normalizedPath.slice(normalizedOld.length)}`;
 }
 
-export type ViewMode = 'split' | 'edit' | 'read' | 'code';
+export type ViewMode = 'split' | 'edit' | 'wysiwyg' | 'read' | 'code';
 export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 export type SaveHistorySource = 'manual' | 'auto' | 'save-as';
 export type SaveFailureType = 'none' | 'conflict' | 'permission' | 'missing' | 'readonly' | 'cancelled' | 'unsupported' | 'unknown';

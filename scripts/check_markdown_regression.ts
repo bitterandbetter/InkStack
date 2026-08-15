@@ -10,7 +10,7 @@ import {
 import { parseCodeBlocks, parseOutline } from '../src/lib/outline';
 
 const root = process.cwd();
-const fixturePath = path.join(root, 'InkStack功能测试.md');
+const fixturePath = path.join(root, 'tests/fixtures/InkStack功能测试.md');
 const raw = fs.readFileSync(fixturePath, 'utf8');
 const stripped = stripFrontMatter(raw);
 const prepared = preparePreviewMarkdown(raw);

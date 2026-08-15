@@ -146,6 +146,11 @@ pub fn run() {
                         .accelerator("CmdOrCtrl+4")
                         .build(app)?,
                 )
+                .item(
+                    &MenuItemBuilder::with_id("view-wysiwyg", "所见即所得视图")
+                        .accelerator("CmdOrCtrl+5")
+                        .build(app)?,
+                )
                 .separator()
                 .item(
                     &MenuItemBuilder::with_id("toggle-sidebar", "切换侧边栏")
@@ -206,6 +211,7 @@ pub fn run() {
             | "view-edit"
             | "view-read"
             | "view-code"
+            | "view-wysiwyg"
             | "toggle-sidebar"
             | "toggle-ai"
             | "theme-toggle"

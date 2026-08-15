@@ -101,7 +101,7 @@ export function PreviewPane() {
   ), [markdownComponents, renderedContent]);
 
   useEffect(() => {
-    if (viewMode === 'edit') setPreviewSelection('');
+    if (viewMode === 'edit' || viewMode === 'wysiwyg') setPreviewSelection('');
   }, [viewMode]);
 
   useEffect(() => {
@@ -221,7 +221,7 @@ export function PreviewPane() {
     return (
       <div className={cn(
         "h-full items-center justify-center bg-bg-base text-text-tertiary",
-        viewMode === 'edit' ? 'hidden' : 'flex-1 flex',
+        (viewMode === 'edit' || viewMode === 'wysiwyg') ? 'hidden' : 'flex-1 flex',
         viewMode === 'read' ? 'max-w-4xl mx-auto border-x border-border-subtle shadow-sm' : 'border-l border-border-subtle'
       )}>
         <div className="flex flex-col items-center gap-3 text-center">
@@ -240,7 +240,7 @@ export function PreviewPane() {
   return (
     <div ref={previewContainerRef} style={previewStyle} onMouseUp={refreshPreviewSelection} className={cn(
       "relative h-full overflow-y-auto px-8 py-10 lg:px-12",
-      viewMode === 'edit' ? 'hidden' : 'flex-1',
+      (viewMode === 'edit' || viewMode === 'wysiwyg') ? 'hidden' : 'flex-1',
       viewMode === 'read' ? 'mx-auto border-x border-border-subtle bg-bg-base shadow-sm' : 'border-l border-border-subtle bg-bg-base'
     )}>
       {previewSelection && (

@@ -14,6 +14,7 @@
     "test:coverage": "vitest run --coverage",
     "test:markdown": "node --import tsx scripts/check_markdown_regression.ts",
     "test:markdown:visual": "tsx scripts/check_markdown_visual.ts",
+    "test:wysiwyg:perf": "tsx scripts/benchmark_wysiwyg.ts",
     "themes:generate": "node scripts/typora_extract.mjs && node scripts/generate_typora_themes.mjs",
     "test:themes:visual": "tsx scripts/render_typora_theme_samples.ts",
     "test:tauri:visual": "bash scripts/capture_tauri_visual.sh",
@@ -27,6 +28,7 @@
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@tailwindcss/typography": "^0.5.19",

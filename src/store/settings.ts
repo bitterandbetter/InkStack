@@ -66,6 +66,8 @@ export interface SettingsState {
   clearSaveHistory: () => void;
   splitScrollSync: boolean;
   setSplitScrollSync: (enabled: boolean) => void;
+  wysiwygEnabled: boolean;
+  setWysiwygEnabled: (enabled: boolean) => void;
   markdownToolbarPrefs: MarkdownToolbarPrefs;
   setMarkdownToolbarPrefs: (prefs: MarkdownToolbarPrefs) => void;
 }
@@ -77,6 +79,7 @@ const AUTO_SAVE_PREFS_STORAGE_KEY = 'inkstack.autosave.preferences.v1';
 const SAVE_HISTORY_STORAGE_KEY = 'inkstack.save.history.v1';
 const IMAGE_INSERT_MODE_STORAGE_KEY = 'inkstack.image.insert.mode.v1';
 const SPLIT_SCROLL_SYNC_STORAGE_KEY = 'inkstack.split.scroll.sync.v1';
+const WYSIWYG_ENABLED_STORAGE_KEY = 'inkstack.wysiwyg.enabled.v1';
 const MARKDOWN_TOOLBAR_PREFS_STORAGE_KEY = 'inkstack.markdown.toolbar.prefs.v1';
 const MAX_SAVE_HISTORY = 40;
 
@@ -120,6 +123,15 @@ function loadSplitScrollSync(): boolean {
   try {
     const saved = localStorage.getItem(SPLIT_SCROLL_SYNC_STORAGE_KEY);
     return saved ? JSON.parse(saved) : true;
+  } catch {
+    return true;
+  }
+}
+
+function loadWysiwygEnabled(): boolean {
+  try {
+    const saved = localStorage.getItem(WYSIWYG_ENABLED_STORAGE_KEY);
+    return saved === null ? true : JSON.parse(saved) !== false;
   } catch {
     return true;
   }
@@ -309,6 +321,11 @@ export function createSettingsSlice(set: any, get: any): SettingsState {
     setSplitScrollSync: (enabled) => {
       localStorage.setItem(SPLIT_SCROLL_SYNC_STORAGE_KEY, JSON.stringify(enabled));
       set({ splitScrollSync: enabled });
+    },
+    wysiwygEnabled: loadWysiwygEnabled(),
+    setWysiwygEnabled: (enabled) => {
+      localStorage.setItem(WYSIWYG_ENABLED_STORAGE_KEY, JSON.stringify(enabled));
+      set({ wysiwygEnabled: enabled });
     },
     markdownToolbarPrefs: loadMarkdownToolbarPrefs(),
     setMarkdownToolbarPrefs: (prefs) => {

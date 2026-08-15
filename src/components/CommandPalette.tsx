@@ -35,6 +35,7 @@ import {
   Strikethrough,
   Table2,
   TextSearch,
+  Type,
   Wand2,
   WholeWord,
   Sun
@@ -380,6 +381,13 @@ export function CommandPalette() {
         subtitle: APP_COMMAND_SHORTCUTS['view-split'],
         icon: <PanelLeft size={15} />,
         run: () => runAppCommand('view-split')
+      },
+      {
+        id: 'view-wysiwyg',
+        title: locale === 'zh' ? '切换到所见即所得模式' : 'Switch to WYSIWYG view',
+        subtitle: APP_COMMAND_SHORTCUTS['view-wysiwyg'],
+        icon: <Type size={15} />,
+        run: () => runAppCommand('view-wysiwyg')
       },
       {
         id: 'view-read',

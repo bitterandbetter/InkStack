@@ -20,6 +20,7 @@ import { useShortcuts } from "./lib/hooks/useShortcuts";
 import { lazy, Suspense, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useStore } from "./store";
 import { getCurrentWindow, isTauriRuntime } from "./lib/tauriRuntime";
+import { cn } from "./lib/utils";
 
 const AIPanel = lazy(() => import("./components/AIPanel").then((module) => ({ default: module.AIPanel })));
 const CommandPalette = lazy(() => import("./components/CommandPalette").then((module) => ({ default: module.CommandPalette })));
@@ -76,7 +77,13 @@ export default function App() {
   return (
     <ToastProvider>
       <ToastRefSetup />
-      <div ref={appShellRef} className="inkstack-app-shell flex h-[100dvh] w-screen flex-col overflow-hidden bg-bg-base text-text-primary font-sans">
+      <div
+        ref={appShellRef}
+        className={cn(
+          "inkstack-app-shell flex h-[100dvh] w-screen flex-col overflow-hidden bg-bg-base text-text-primary font-sans",
+          `inkstack-view-${viewMode}`
+        )}
+      >
         <Header />
         <DocumentTabs />
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -249,4 +256,3 @@ function ToastRefSetup() {
   }, [toast]);
   return null;
 }
-

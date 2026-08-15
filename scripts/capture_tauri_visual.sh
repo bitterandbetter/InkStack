@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FIXTURE_PATH="${1:-$ROOT_DIR/InkStack功能测试.md}"
+FIXTURE_PATH="${1:-$ROOT_DIR/tests/fixtures/InkStack功能测试.md}"
 OUTPUT_DIR="${2:-$ROOT_DIR/tmp/tauri-visual-baseline}"
 SCREENSHOT_PATH="$OUTPUT_DIR/inkstack-tauri-window.png"
 AI_SCREENSHOT_PATH="$OUTPUT_DIR/inkstack-tauri-window-ai-open.png"

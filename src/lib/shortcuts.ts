@@ -23,6 +23,7 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
   { id: 'view-split', label: '分屏模式', category: 'view', defaultKeys: ['Cmd/Ctrl+2'], currentKeys: ['Cmd/Ctrl+2'] },
   { id: 'view-read', label: '阅读模式', category: 'view', defaultKeys: ['Cmd/Ctrl+3'], currentKeys: ['Cmd/Ctrl+3'] },
   { id: 'view-code', label: '代码模式', category: 'view', defaultKeys: ['Cmd/Ctrl+4'], currentKeys: ['Cmd/Ctrl+4'] },
+  { id: 'view-wysiwyg', label: '所见即所得模式', category: 'view', defaultKeys: ['Cmd/Ctrl+5'], currentKeys: ['Cmd/Ctrl+5'] },
   { id: 'toggle-sidebar', label: '切换侧边栏', category: 'view', defaultKeys: ['Cmd/Ctrl+\\'], currentKeys: ['Cmd/Ctrl+\\'] },
   
   { id: 'toggle-ai', label: 'AI 面板', category: 'ai', defaultKeys: ['Cmd/Ctrl+Shift+A'], currentKeys: ['Cmd/Ctrl+Shift+A'] },

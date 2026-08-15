@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="360" viewBox="0 0 720 360" role="img" aria-labelledby="title desc">
+  <title id="title">InkStack WYSIWYG test image</title>
+  <desc id="desc">A local fixture used to verify relative Markdown image rendering.</desc>
+  <rect width="720" height="360" rx="28" fill="#f5f0e7"/>
+  <rect x="36" y="36" width="648" height="288" rx="18" fill="#ffffff" stroke="#2f8f72" stroke-width="4"/>
+  <path d="M120 245 L245 125 L338 218 L420 155 L600 260" fill="none" stroke="#2f8f72" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="530" cy="105" r="34" fill="#e4b85a"/>
+  <text x="360" y="305" text-anchor="middle" font-family="system-ui, sans-serif" font-size="28" font-weight="700" fill="#243b35">InkStack · local image fixture</text>
+</svg>
