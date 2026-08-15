@@ -244,7 +244,7 @@ pub fn run() {
         .setup(|app| {
             let paths = markdown_args_from_argv(&std::env::args().collect::<Vec<_>>());
             emit_markdown_paths(app.handle(), paths);
-            
+
             // Handle window close event
             let app_handle = app.handle().clone();
             if let Some(window) = app.get_webview_window("main") {
@@ -256,7 +256,7 @@ pub fn run() {
                     }
                 });
             }
-            
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

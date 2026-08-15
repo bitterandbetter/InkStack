@@ -31,12 +31,14 @@ pub async fn generate_ai_text(request: AiGenerateRequest) -> Result<AiGenerateRe
     let request = normalize_ai_request(request)?;
 
     match request.kind.as_str() {
-        "openai" | "openai-compatible" => request_openai_compatible(request)
-            .await
-            .map(|response| AiGenerateResult {
-                text: response.text,
-                model: None,
-            }),
+        "openai" | "openai-compatible" => {
+            request_openai_compatible(request)
+                .await
+                .map(|response| AiGenerateResult {
+                    text: response.text,
+                    model: None,
+                })
+        }
         "anthropic" => request_anthropic(request)
             .await
             .map(|response| AiGenerateResult {

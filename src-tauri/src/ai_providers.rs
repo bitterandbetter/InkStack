@@ -38,7 +38,11 @@ pub fn build_ai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec,
 }
 
 fn resolve_base_url(request: &AiGenerateRequest, default_env: &str, default_url: &str) -> String {
-    if let Some(url) = request.base_url.as_deref().filter(|url| !url.trim().is_empty()) {
+    if let Some(url) = request
+        .base_url
+        .as_deref()
+        .filter(|url| !url.trim().is_empty())
+    {
         return url.trim().to_string();
     }
     let env_name = request.base_url_env.as_deref().unwrap_or(default_env);
@@ -61,11 +65,7 @@ fn resolve_model(request: &AiGenerateRequest, default_env: &str, default_model: 
 pub async fn request_openai_compatible(
     request: AiGenerateRequest,
 ) -> Result<AiGenerateResult, String> {
-    let base_url = resolve_base_url(
-        &request,
-        "OPENAI_BASE_URL",
-        "https://api.openai.com/v1",
-    );
+    let base_url = resolve_base_url(&request, "OPENAI_BASE_URL", "https://api.openai.com/v1");
     let api_key = resolve_api_key(&request, "OPENAI_API_KEY")?;
     let model = resolve_model(&request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL);
     let use_responses = openai_prefers_responses_api(&model);
@@ -304,11 +304,7 @@ pub fn extract_stream_delta(data: &serde_json::Value, parser: &AiStreamParser) -
 }
 
 fn build_openai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {
-    let base_url = resolve_base_url(
-        request,
-        "OPENAI_BASE_URL",
-        "https://api.openai.com/v1",
-    );
+    let base_url = resolve_base_url(request, "OPENAI_BASE_URL", "https://api.openai.com/v1");
     let api_key = resolve_api_key(request, "OPENAI_API_KEY")?;
     let model = resolve_model(request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL);
     let use_responses = openai_prefers_responses_api(&model);
@@ -337,12 +333,10 @@ fn build_openai_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec,
     })
 }
 
-fn build_openai_compatible_stream_spec(request: &AiGenerateRequest) -> Result<AiStreamSpec, String> {
-    let base_url = resolve_base_url(
-        request,
-        "OPENAI_BASE_URL",
-        "https://api.deepseek.com/v1",
-    );
+fn build_openai_compatible_stream_spec(
+    request: &AiGenerateRequest,
+) -> Result<AiStreamSpec, String> {
+    let base_url = resolve_base_url(request, "OPENAI_BASE_URL", "https://api.deepseek.com/v1");
     let api_key = resolve_api_key(request, "OPENAI_API_KEY")?;
     let model = resolve_model(request, "OPENAI_MODEL", DEFAULT_OPENAI_MODEL);
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));

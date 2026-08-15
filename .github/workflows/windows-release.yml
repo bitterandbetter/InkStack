@@ -1,0 +1,77 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and upload
+        required: true
+        default: v1.1.0
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-installer:
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Generate Windows application icons
+        run: npm run tauri -- icon src-tauri/icons/icon.png
+
+      - name: Build unsigned NSIS installer
+        run: npm run tauri -- build --bundles nsis
+
+      - name: Prepare release files
+        shell: pwsh
+        run: |
+          $version = $env:RELEASE_TAG.TrimStart("v")
+          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" |
+            Select-Object -First 1
+          if (-not $installer) {
+            throw "The NSIS installer was not produced."
+          }
+
+          New-Item -ItemType Directory -Force "release-assets" | Out-Null
+          $assetName = "InkStack_${version}_x64-unsigned-setup.exe"
+          $assetPath = Join-Path "release-assets" $assetName
+          Copy-Item $installer.FullName $assetPath
+
+          $hash = (Get-FileHash $assetPath -Algorithm SHA256).Hash.ToLower()
+          "$hash  $assetName" |
+            Set-Content "release-assets/InkStack_${version}_windows_SHA256SUMS.txt"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: InkStack-${{ inputs.tag }}-windows-x64
+          path: release-assets/*
+          if-no-files-found: error
+
+      - name: Upload files to the existing GitHub release
+        shell: pwsh
+        run: gh release upload $env:RELEASE_TAG release-assets/* --clobber

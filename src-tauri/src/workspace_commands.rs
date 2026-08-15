@@ -17,8 +17,8 @@ use crate::file_kinds::{
     classify_file_path, is_hidden_tree_entry, is_ignored_dir, is_reasonable_text_file,
 };
 use crate::models::{
-    CreateWorkspaceEntryRequest, DeleteWorkspaceEntryResult, DirectoryScanResult, FileEntry, MarkdownDocument,
-    RenameWorkspaceEntryRequest,
+    CreateWorkspaceEntryRequest, DeleteWorkspaceEntryResult, DirectoryScanResult, FileEntry,
+    MarkdownDocument, RenameWorkspaceEntryRequest,
 };
 use crate::workspace_index::clear_workspace_index;
 use crate::AppState;

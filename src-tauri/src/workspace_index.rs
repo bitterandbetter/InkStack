@@ -1082,7 +1082,15 @@ fn score_document_search(
 
     let mut best_score = 0usize;
     let mut match_kind = String::new();
-    bump_document_score(&mut best_score, &mut match_kind, title, query, terms, "title", 120);
+    bump_document_score(
+        &mut best_score,
+        &mut match_kind,
+        title,
+        query,
+        terms,
+        "title",
+        120,
+    );
     bump_document_score(
         &mut best_score,
         &mut match_kind,
@@ -2345,7 +2353,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            frontmatter.get("title").and_then(frontmatter_value_to_string),
+            frontmatter
+                .get("title")
+                .and_then(frontmatter_value_to_string),
             Some("Alias Target".to_string())
         );
 
@@ -2363,12 +2373,7 @@ mod tests {
         assert!(aliases.iter().any(|alias| alias == "Quick Index"));
         assert!(document_aliases(&target).contains(&"index brain".to_string()));
 
-        let source = test_document(
-            "/workspace/source.md",
-            "source.md",
-            Some("Source"),
-            &[],
-        );
+        let source = test_document("/workspace/source.md", "source.md", Some("Source"), &[]);
         let link = LinkReference {
             id: "link:source:1:Index Brain".to_string(),
             source_path: source.path.clone(),
@@ -2570,7 +2575,8 @@ mod tests {
             Some("Semantic Index"),
             &["graph", "research"],
         );
-        target.frontmatter_json = Some(r#"{"aliases":["Index Brain","Knowledge Map"]}"#.to_string());
+        target.frontmatter_json =
+            Some(r#"{"aliases":["Index Brain","Knowledge Map"]}"#.to_string());
         let other = test_document(
             "/workspace/archive/plain.md",
             "archive/plain.md",
