@@ -21,7 +21,7 @@ This checklist separates repository preparation from actions that require reposi
 - [ ] Review the entire commit history for ownership, third-party code, private documents, and confidential information.
 - [ ] Enable GitHub private vulnerability reporting.
 - [ ] Add a concise repository description, topics, and website URL if applicable.
-- [ ] Protect `main`: require pull requests, passing CI, resolved conversations, and no force pushes.
+- [x] Protect `main`: require pull requests, passing CI, resolved conversations, and no force pushes.
 - [ ] Enable secret scanning and push protection where available.
 - [ ] Decide which merge strategies to allow and enable automatic deletion of merged branches.
 - [x] Make the repository public.
