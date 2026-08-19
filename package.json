@@ -60,7 +60,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^22.14.0",
-    "@vitejs/plugin-react": "^5.0.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.4.21",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.10",
